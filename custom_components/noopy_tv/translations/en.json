@@ -1,0 +1,61 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configure Noopy TV",
+        "description": "Enter the IP address of the device running Noopy TV.",
+        "data": {
+          "host": "IP Address",
+          "port": "Port (default: 8765)"
+        }
+      },
+      "zeroconf_confirm": {
+        "title": "Noopy TV discovered",
+        "description": "Noopy TV was automatically detected on your network!\n\n**Name:** {name}\n**Address:** {host}:{port}\n\nWould you like to add it?"
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to Noopy TV. Make sure the app is open.",
+      "invalid_response": "Invalid response from server. This might not be Noopy TV.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This Noopy TV instance is already configured.",
+      "cannot_connect": "Cannot connect to Noopy TV."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Noopy TV Options",
+        "description": "Configure integration options.",
+        "data": {
+          "scan_interval": "Update interval (seconds)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "select": {
+      "channel_selector": {
+        "name": "TV Channel"
+      }
+    }
+  },
+  "services": {
+    "refresh": {
+      "name": "Refresh",
+      "description": "Force refresh data from Noopy TV."
+    },
+    "play_channel": {
+      "name": "Change channel",
+      "description": "Change the currently playing channel on Noopy TV.",
+      "fields": {
+        "channel_id": {
+          "name": "Channel ID",
+          "description": "The identifier or name of the channel to play."
+        }
+      }
+    }
+  }
+}

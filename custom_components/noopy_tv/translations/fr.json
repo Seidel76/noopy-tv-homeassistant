@@ -1,0 +1,61 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configurer Noopy TV",
+        "description": "Entrez l'adresse IP de l'appareil exécutant Noopy TV.",
+        "data": {
+          "host": "Adresse IP",
+          "port": "Port (défaut: 8765)"
+        }
+      },
+      "zeroconf_confirm": {
+        "title": "Noopy TV découvert",
+        "description": "Noopy TV a été détecté automatiquement sur votre réseau !\n\n**Nom:** {name}\n**Adresse:** {host}:{port}\n\nVoulez-vous l'ajouter ?"
+      }
+    },
+    "error": {
+      "cannot_connect": "Impossible de se connecter à Noopy TV. Vérifiez que l'application est ouverte.",
+      "invalid_response": "Réponse invalide du serveur. Ce n'est peut-être pas Noopy TV.",
+      "unknown": "Une erreur inattendue s'est produite."
+    },
+    "abort": {
+      "already_configured": "Cette instance de Noopy TV est déjà configurée.",
+      "cannot_connect": "Impossible de se connecter à Noopy TV."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options Noopy TV",
+        "description": "Configurez les options de l'intégration.",
+        "data": {
+          "scan_interval": "Intervalle de mise à jour (secondes)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "select": {
+      "channel_selector": {
+        "name": "Chaîne TV"
+      }
+    }
+  },
+  "services": {
+    "refresh": {
+      "name": "Rafraîchir",
+      "description": "Force le rafraîchissement des données depuis Noopy TV."
+    },
+    "play_channel": {
+      "name": "Changer de chaîne",
+      "description": "Change la chaîne en cours de lecture sur Noopy TV.",
+      "fields": {
+        "channel_id": {
+          "name": "ID de la chaîne",
+          "description": "L'identifiant ou le nom de la chaîne à lire."
+        }
+      }
+    }
+  }
+}
