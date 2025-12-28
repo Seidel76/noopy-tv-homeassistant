@@ -52,20 +52,15 @@ async def async_setup_entry(
     # Sélecteur global (toutes les chaînes)
     entities.append(NoopyTVChannelSelect(coordinator, api, entry))
     
-    # Récupérer les catégories depuis les données
+    # Récupérer les catégories depuis l'API (noms officiels)
     if coordinator.data:
-        channels = coordinator.data.get("channels", {})
-        categories: set[str] = set()
+        categories_data = coordinator.data.get("categories", {})
         
-        for channel_data in channels.values():
-            category = channel_data.get("category", "")
-            if category:
-                categories.add(category)
-        
-        # Créer un sélecteur par catégorie
-        for category in sorted(categories):
-            entities.append(NoopyTVCategorySelect(coordinator, api, entry, category))
-            _LOGGER.debug("Création du sélecteur pour la catégorie: %s", category)
+        # Créer un sélecteur par catégorie avec le nom officiel
+        for category_name in sorted(categories_data.keys()):
+            if category_name:  # Ignorer les catégories vides
+                entities.append(NoopyTVCategorySelect(coordinator, api, entry, category_name))
+                _LOGGER.debug("Création du sélecteur pour la catégorie: %s", category_name)
     
     async_add_entities(entities)
     _LOGGER.info("Créé %d sélecteurs de chaînes", len(entities))

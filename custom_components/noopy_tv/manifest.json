@@ -8,6 +8,6 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/Seidel76/noopy-tv-homeassistant/issues",
   "requirements": ["aiohttp>=3.8.0"],
-  "version": "1.0.0",
+  "version": "1.0.1",
   "zeroconf": ["_noopytv._tcp.local."]
 }
