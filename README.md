@@ -157,7 +157,7 @@ cards:
       {% set progress = state_attr('select.noopy_tv_chaine_tv', 'progress_percent') %}
       {% set active = state_attr('select.noopy_tv_chaine_tv', 'player_active') %}
       {% if active and channel %}
-      <img src="{{ logo }}" style="height: 60px; margin-bottom: 10px;" />
+      <img src="{{ logo }}" style="max-height: 48px; max-width: 120px; object-fit: contain;" />
       
       ## {{ channel }}
       
@@ -445,7 +445,7 @@ cards:
       {% set progress = state_attr('select.noopy_tv_chaine_tv', 'progress_percent') %}
       {% set active = state_attr('select.noopy_tv_chaine_tv', 'player_active') %}
       {% if active and channel %}
-      <img src="{{ logo }}" style="height: 60px; margin-bottom: 10px;" />
+      <img src="{{ logo }}" style="max-height: 48px; max-width: 120px; object-fit: contain;" />
       
       ## {{ channel }}
       
