@@ -114,21 +114,27 @@ class NoopyTVChannelSelect(CoordinatorEntity, SelectEntity):
     
     @property
     def options(self) -> list[str]:
-        """Retourne la liste des chaînes disponibles."""
+        """Retourne la liste des chaînes disponibles (dans l'ordre de l'app)."""
         if not self.coordinator.data:
             return []
         
         channels = self.coordinator.data.get("channels", {})
         
+        # Trier par l'ordre défini dans l'app, pas alphabétiquement
+        sorted_channels = sorted(
+            channels.items(),
+            key=lambda x: x[1].get("order", 999999)
+        )
+        
         self._channel_map = {}
         names = []
-        for channel_id, channel_data in channels.items():
+        for channel_id, channel_data in sorted_channels:
             name = channel_data.get("name", "")
             if name:
                 self._channel_map[name] = channel_id
                 names.append(name)
         
-        return sorted(names)
+        return names
     
     @property
     def current_option(self) -> str | None:
@@ -250,22 +256,32 @@ class NoopyTVCategorySelect(CoordinatorEntity, SelectEntity):
     
     @property
     def options(self) -> list[str]:
-        """Retourne la liste des chaînes de cette catégorie."""
+        """Retourne la liste des chaînes de cette catégorie (dans l'ordre de l'app)."""
         if not self.coordinator.data:
             return []
         
         channels = self.coordinator.data.get("channels", {})
         
+        # Filtrer par catégorie et trier par l'ordre défini dans l'app
+        category_channels = [
+            (channel_id, channel_data)
+            for channel_id, channel_data in channels.items()
+            if channel_data.get("category") == self._category
+        ]
+        sorted_channels = sorted(
+            category_channels,
+            key=lambda x: x[1].get("order", 999999)
+        )
+        
         self._channel_map = {}
         names = []
-        for channel_id, channel_data in channels.items():
-            if channel_data.get("category") == self._category:
-                name = channel_data.get("name", "")
-                if name:
-                    self._channel_map[name] = channel_id
-                    names.append(name)
+        for channel_id, channel_data in sorted_channels:
+            name = channel_data.get("name", "")
+            if name:
+                self._channel_map[name] = channel_id
+                names.append(name)
         
-        return sorted(names)
+        return names
     
     @property
     def current_option(self) -> str | None:
