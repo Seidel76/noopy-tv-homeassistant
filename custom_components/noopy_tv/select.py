@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import quote
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
@@ -49,6 +50,26 @@ class NoopyTVChannelSelect(CoordinatorEntity, SelectEntity):
         self._attr_unique_id = f"{entry.entry_id}_channel_selector"
         self._current_option: str | None = None
         self._channel_map: dict[str, str] = {}  # name -> id
+    
+    @property
+    def entity_picture(self) -> str | None:
+        """Retourne l'URL du logo de la chaîne en cours via le proxy."""
+        if not self.coordinator.data:
+            return None
+        
+        player = self.coordinator.data.get("player", {})
+        current_channel = player.get("current_channel")
+        
+        if current_channel:
+            logo_url = current_channel.get("logo_url")
+            if logo_url:
+                # Utiliser le proxy d'image de Noopy TV pour éviter les problèmes CORS
+                host = self._entry.data.get("host", "")
+                port = self._entry.data.get("port", 8765)
+                encoded_url = quote(logo_url, safe="")
+                return f"http://{host}:{port}/api/v1/proxy/image?url={encoded_url}"
+        
+        return None
     
     @property
     def device_info(self) -> dict[str, Any]:
@@ -112,11 +133,19 @@ class NoopyTVChannelSelect(CoordinatorEntity, SelectEntity):
             attrs[ATTR_CURRENT_CHANNEL_ID] = current_channel.get("id")
             attrs[ATTR_CURRENT_CHANNEL_LOGO] = current_channel.get("logo_url")
             
+            # Logo via proxy (pour l'affichage dans les cartes)
+            logo_url = current_channel.get("logo_url")
+            if logo_url:
+                host = self._entry.data.get("host", "")
+                port = self._entry.data.get("port", 8765)
+                encoded_url = quote(logo_url, safe="")
+                attrs["logo_proxy_url"] = f"http://{host}:{port}/api/v1/proxy/image?url={encoded_url}"
+            
             # Programme en cours
             current_prog = current_channel.get("current_program")
             if current_prog:
                 attrs["current_program"] = current_prog.get("title")
-                attrs["current_program_progress"] = current_prog.get("progress_percent", 0)
+                attrs["progress_percent"] = current_prog.get("progress_percent", 0)
         
         return attrs
     
