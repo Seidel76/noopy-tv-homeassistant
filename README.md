@@ -1,4 +1,234 @@
-# Noopy TV - Intégration Home Assistant
+# Noopy TV - Home Assistant Integration
+
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
+
+This integration connects Home Assistant to your Noopy TV app. **No manual configuration needed** - Home Assistant automatically discovers Noopy TV on your local network!
+
+🇫🇷 [Version française ci-dessous](#-noopy-tv---intégration-home-assistant)
+
+## ✨ How it works
+
+```
+┌─────────────────┐         Auto Discovery         ┌─────────────────┐
+│                 │           Bonjour              │                 │
+│   Noopy TV      │ ◄──────   (mDNS)   ─────────► │  Home Assistant │
+│  (Apple TV)     │                                │                 │
+│                 │                                │                 │
+│  Local API      │ ──── HTTP localhost:8765 ────► │  Fetches data   │
+│  Server         │          /api/v1/*             │                 │
+└─────────────────┘                                └─────────────────┘
+```
+
+1. **Noopy TV** exposes a local HTTP server on port 8765
+2. **Bonjour/mDNS** publishes the `_noopytv._tcp` service for discovery
+3. **Home Assistant** automatically detects Noopy TV and fetches data
+
+## 🚀 Features
+
+- ✅ **Auto Discovery** - Home Assistant finds Noopy TV automatically
+- ✅ **No credentials needed** - No need to enter your Xtream info
+- ✅ **Channel list** - All your channels as sensors
+- ✅ **Current program** - Shows the currently playing program
+- ✅ **Progress** - Program progress percentage
+- ✅ **Channel selector** - Change channels directly from Home Assistant
+- ✅ **Now playing** - See what's currently being watched
+- ✅ **Channel logos** - Images available
+- ✅ **Categories** - Organized by category
+- ✅ **Catch-up TV** - Shows which channels have replay
+
+## 📦 Installation
+
+### Noopy TV Side (automatic)
+
+1. Open **Settings** in Noopy TV
+2. Enable **Home Assistant** in the Integrations section
+3. The server starts automatically
+
+**Important**: Noopy TV must be **open** on your Apple TV for Home Assistant to connect.
+
+### Home Assistant Side
+
+1. Copy the `custom_components/noopy_tv` folder to your `config/custom_components/` directory
+
+```bash
+config/
+├── custom_components/
+│   └── noopy_tv/
+│       ├── __init__.py
+│       ├── api.py
+│       ├── config_flow.py
+│       ├── const.py
+│       ├── manifest.json
+│       ├── select.py
+│       ├── sensor.py
+│       ├── strings.json
+│       └── translations/
+```
+
+2. Restart Home Assistant
+
+3. **That's it!** Home Assistant should automatically discover Noopy TV
+
+## 🔍 Auto Discovery
+
+When Noopy TV is open on your Apple TV:
+
+1. Go to **Settings** → **Devices & Services**
+2. You should see a "Noopy TV discovered" notification
+3. Click **Configure**
+4. Confirm the addition
+
+If auto discovery doesn't work, you can add manually:
+1. **+ Add Integration**
+2. Search for **Noopy TV**
+3. Enter your Apple TV's IP address
+
+## 📊 Created Entities
+
+### Channel Selector
+
+`select.noopy_tv_channel_selector`
+
+A dropdown to change channels directly from Home Assistant! Shows:
+- All available channels
+- Currently watching channel (auto-selected)
+- Player status (active/inactive)
+
+### Statistics Sensor
+
+`sensor.noopy_tv_statistics`
+
+| Attribute | Description |
+|-----------|-------------|
+| `total_channels` | Total number of channels |
+| `total_categories` | Number of categories |
+| `categories` | List of category names |
+
+### Per-channel Sensors
+
+`sensor.noopy_tv_[channel_name]`
+
+| Attribute | Description |
+|-----------|-------------|
+| `channel_id` | Channel ID |
+| `channel_name` | Channel name |
+| `logo_url` | Logo URL |
+| `stream_url` | Video stream URL |
+| `category` | Category |
+| `current_program` | Current program |
+| `current_program_start` | Start time |
+| `current_program_end` | End time |
+| `current_program_description` | Description |
+| `progress_percent` | Progress (%) |
+| `has_catchup` | Catch-up available |
+
+## 🔧 API exposed by Noopy TV
+
+Noopy TV exposes these endpoints at `http://[apple-tv-ip]:8765`:
+
+| Endpoint | Description |
+|----------|-------------|
+| `/` | HTML welcome page |
+| `/api/v1/info` | Server information |
+| `/api/v1/channels` | Channel list with EPG |
+| `/api/v1/categories` | Category list |
+| `/api/v1/epg` | Full program guide |
+| `/api/v1/now` | All current programs |
+| `/api/v1/channel/{id}` | Channel details |
+| `/api/v1/player` | Player status & current channel |
+| `POST /api/v1/player/play` | Change channel |
+
+## 📱 Usage Examples
+
+### Lovelace Card - Channel Selector
+
+```yaml
+type: entities
+title: 📺 Noopy TV
+entities:
+  - entity: select.noopy_tv_channel_selector
+    name: Channel
+```
+
+### Lovelace Card - Current Program
+
+```yaml
+type: entities
+title: 📺 Live TV
+entities:
+  - entity: sensor.noopy_tv_tf1
+    secondary_info: attribute
+    attribute: current_program
+  - entity: sensor.noopy_tv_france_2
+    secondary_info: attribute  
+    attribute: current_program
+```
+
+### Automation - Notification
+
+```yaml
+automation:
+  - alias: "New program notification"
+    trigger:
+      - platform: state
+        entity_id: sensor.noopy_tv_tf1
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "📺 New on TF1"
+          message: "{{ states('sensor.noopy_tv_tf1') }}"
+```
+
+### Service - Change Channel
+
+```yaml
+service: noopy_tv.play_channel
+data:
+  channel_id: "TF1"  # Channel name or UUID
+```
+
+## ⚠️ Limitations
+
+- **App must be open**: Noopy TV must be running on Apple TV for the server to be accessible
+- **Local network**: Apple TV and Home Assistant must be on the same network
+- **tvOS only**: The server is currently only integrated in the tvOS version
+
+## 🐛 Troubleshooting
+
+### Home Assistant doesn't discover Noopy TV
+
+1. Check that Noopy TV is **open** on Apple TV
+2. Check that Home Assistant is enabled in Noopy TV **Settings** → **Integrations**
+3. Check that both devices are on the **same network**
+4. Try accessing `http://[apple-tv-ip]:8765` in a browser
+
+### Integration shows "unavailable"
+
+This means Noopy TV is no longer accessible:
+- App was closed
+- Apple TV went to sleep
+- Network issue
+
+### Enable debug logs
+
+```yaml
+logger:
+  default: info
+  logs:
+    custom_components.noopy_tv: debug
+```
+
+## 🤝 Contributing
+
+Contributions are welcome!
+
+## 📄 License
+
+MIT License
+
+---
+
+# 🇫🇷 Noopy TV - Intégration Home Assistant
 
 Cette intégration permet de connecter automatiquement Home Assistant à votre application Noopy TV. **Aucune configuration manuelle n'est nécessaire** - Home Assistant découvre automatiquement Noopy TV sur votre réseau local !
 
@@ -26,6 +256,8 @@ Cette intégration permet de connecter automatiquement Home Assistant à votre a
 - ✅ **Liste des chaînes TV** - Toutes vos chaînes comme sensors
 - ✅ **Programme en cours** - Affiche le programme actuellement diffusé
 - ✅ **Progression** - Pourcentage de progression du programme
+- ✅ **Sélecteur de chaînes** - Changez de chaîne directement depuis Home Assistant
+- ✅ **En cours de lecture** - Voyez ce qui est actuellement regardé
 - ✅ **Logos des chaînes** - Images disponibles
 - ✅ **Catégories** - Organisation par catégorie
 - ✅ **Catch-up TV** - Indication des chaînes avec replay
@@ -34,7 +266,9 @@ Cette intégration permet de connecter automatiquement Home Assistant à votre a
 
 ### Côté Noopy TV (automatique)
 
-Le serveur Home Assistant est intégré directement dans Noopy TV. Il démarre automatiquement quand l'app est ouverte.
+1. Ouvrez les **Réglages** dans Noopy TV
+2. Activez **Home Assistant** dans la section Intégrations
+3. Le serveur démarre automatiquement
 
 **Important** : L'app Noopy TV doit être **ouverte** sur votre Apple TV pour que Home Assistant puisse s'y connecter.
 
@@ -51,6 +285,7 @@ config/
 │       ├── config_flow.py
 │       ├── const.py
 │       ├── manifest.json
+│       ├── select.py
 │       ├── sensor.py
 │       ├── strings.json
 │       └── translations/
@@ -75,6 +310,15 @@ Si la découverte automatique ne fonctionne pas, vous pouvez ajouter manuellemen
 3. Entrez l'adresse IP de votre Apple TV
 
 ## 📊 Entités créées
+
+### Sélecteur de chaînes
+
+`select.noopy_tv_channel_selector`
+
+Une liste déroulante pour changer de chaîne directement depuis Home Assistant ! Affiche :
+- Toutes les chaînes disponibles
+- La chaîne en cours de lecture (auto-sélectionnée)
+- Le statut du player (actif/inactif)
 
 ### Sensor de statistiques
 
@@ -117,8 +361,20 @@ Noopy TV expose les endpoints suivants sur `http://[ip-apple-tv]:8765` :
 | `/api/v1/epg` | Guide des programmes complet |
 | `/api/v1/now` | Tous les programmes en cours |
 | `/api/v1/channel/{id}` | Détails d'une chaîne |
+| `/api/v1/player` | Statut du player & chaîne en cours |
+| `POST /api/v1/player/play` | Changer de chaîne |
 
 ## 📱 Exemples d'utilisation
+
+### Carte Lovelace - Sélecteur de chaînes
+
+```yaml
+type: entities
+title: 📺 Noopy TV
+entities:
+  - entity: select.noopy_tv_channel_selector
+    name: Chaîne
+```
 
 ### Carte Lovelace - Programme en cours
 
@@ -149,17 +405,12 @@ automation:
           message: "{{ states('sensor.noopy_tv_tf1') }}"
 ```
 
-### Vérifier si Noopy TV est accessible
+### Service - Changer de chaîne
 
 ```yaml
-type: conditional
-conditions:
-  - entity: sensor.noopy_tv_statistiques
-    state_not: "unavailable"
-card:
-  type: entities
-  entities:
-    - sensor.noopy_tv_statistiques
+service: noopy_tv.play_channel
+data:
+  channel_id: "TF1"  # Nom ou UUID de la chaîne
 ```
 
 ## ⚠️ Limitations
@@ -173,8 +424,9 @@ card:
 ### Home Assistant ne découvre pas Noopy TV
 
 1. Vérifiez que Noopy TV est **ouvert** sur l'Apple TV
-2. Vérifiez que les deux appareils sont sur le **même réseau**
-3. Essayez d'accéder à `http://[ip-apple-tv]:8765` dans un navigateur
+2. Vérifiez que Home Assistant est activé dans les **Réglages** → **Intégrations** de Noopy TV
+3. Vérifiez que les deux appareils sont sur le **même réseau**
+4. Essayez d'accéder à `http://[ip-apple-tv]:8765` dans un navigateur
 
 ### L'intégration affiche "indisponible"
 
