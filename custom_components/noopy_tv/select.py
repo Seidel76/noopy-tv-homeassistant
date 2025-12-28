@@ -53,7 +53,7 @@ class NoopyTVChannelSelect(CoordinatorEntity, SelectEntity):
     
     @property
     def entity_picture(self) -> str | None:
-        """Retourne l'URL du logo de la chaîne en cours via le proxy."""
+        """Retourne l'URL du logo de la chaîne en cours via le proxy (redimensionné)."""
         if not self.coordinator.data:
             return None
         
@@ -63,11 +63,11 @@ class NoopyTVChannelSelect(CoordinatorEntity, SelectEntity):
         if current_channel:
             logo_url = current_channel.get("logo_url")
             if logo_url:
-                # Utiliser le proxy d'image de Noopy TV pour éviter les problèmes CORS
+                # Utiliser le proxy d'image de Noopy TV avec redimensionnement à 48px
                 host = self._entry.data.get("host", "")
                 port = self._entry.data.get("port", 8765)
                 encoded_url = quote(logo_url, safe="")
-                return f"http://{host}:{port}/api/v1/proxy/image?url={encoded_url}"
+                return f"http://{host}:{port}/api/v1/proxy/image?url={encoded_url}&size=48"
         
         return None
     
@@ -133,13 +133,13 @@ class NoopyTVChannelSelect(CoordinatorEntity, SelectEntity):
             attrs[ATTR_CURRENT_CHANNEL_ID] = current_channel.get("id")
             attrs[ATTR_CURRENT_CHANNEL_LOGO] = current_channel.get("logo_url")
             
-            # Logo via proxy (pour l'affichage dans les cartes)
+            # Logo via proxy (pour l'affichage dans les cartes) - taille 80px pour les cartes
             logo_url = current_channel.get("logo_url")
             if logo_url:
                 host = self._entry.data.get("host", "")
                 port = self._entry.data.get("port", 8765)
                 encoded_url = quote(logo_url, safe="")
-                attrs["logo_proxy_url"] = f"http://{host}:{port}/api/v1/proxy/image?url={encoded_url}"
+                attrs["logo_proxy_url"] = f"http://{host}:{port}/api/v1/proxy/image?url={encoded_url}&size=80"
             
             # Programme en cours
             current_prog = current_channel.get("current_program")
