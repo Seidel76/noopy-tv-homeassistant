@@ -137,20 +137,82 @@ Noopy TV exposes these endpoints at `http://[apple-tv-ip]:8765`:
 | `/api/v1/channel/{id}` | Channel details |
 | `/api/v1/player` | Player status & current channel |
 | `POST /api/v1/player/play` | Change channel |
+| `/api/v1/proxy/image?url=` | Image proxy (for logos) |
 
 ## 📱 Usage Examples
 
-### Lovelace Card - Channel Selector
+### Lovelace Card - Now Playing with Logo
+
+The complete card showing the current channel with logo, program, and progress:
+
+```yaml
+type: vertical-stack
+cards:
+  - type: markdown
+    title: 📺 Now Playing
+    content: |
+      {% set channel = state_attr('select.noopy_tv_chaine_tv', 'current_channel') %}
+      {% set program = state_attr('select.noopy_tv_chaine_tv', 'current_program') %}
+      {% set logo = state_attr('select.noopy_tv_chaine_tv', 'logo_proxy_url') %}
+      {% set progress = state_attr('select.noopy_tv_chaine_tv', 'progress_percent') %}
+      {% set active = state_attr('select.noopy_tv_chaine_tv', 'player_active') %}
+      {% if active and channel %}
+      <img src="{{ logo }}" style="height: 60px; margin-bottom: 10px;" />
+      
+      ## {{ channel }}
+      
+      **{{ program | default('Loading...') }}**
+      
+      ⏱️ Progress: {{ (progress | float(0)) | round(0) }}%
+      {% else %}
+      *No playback in progress*
+      {% endif %}
+  - type: entities
+    entities:
+      - entity: select.noopy_tv_chaine_tv
+        name: Change channel
+```
+
+### Lovelace Card - Simple Channel Selector
 
 ```yaml
 type: entities
 title: 📺 Noopy TV
 entities:
-  - entity: select.noopy_tv_channel_selector
+  - entity: select.noopy_tv_chaine_tv
     name: Channel
 ```
 
-### Lovelace Card - Current Program
+### Lovelace Card - Compact with Progress Bar
+
+```yaml
+type: vertical-stack
+cards:
+  - type: markdown
+    content: |
+      {% set c = 'select.noopy_tv_chaine_tv' %}
+      {% set active = state_attr(c, 'player_active') %}
+      {% set channel = state_attr(c, 'current_channel') %}
+      {% set program = state_attr(c, 'current_program') %}
+      {% set progress = state_attr(c, 'progress_percent') | float(0) | round(0) %}
+      
+      {% if active and channel %}
+      ## 📺 {{ channel }}
+      🎬 **{{ program }}**
+      
+      <progress value="{{ progress }}" max="100" style="width:100%; height:8px; border-radius:4px;"></progress>
+      <small>{{ progress }}% complete</small>
+      {% else %}
+      ## 📵 Player inactive
+      *Start a channel on Noopy TV*
+      {% endif %}
+  - type: entities
+    entities:
+      - entity: select.noopy_tv_chaine_tv
+        name: 📡 Change channel
+```
+
+### Lovelace Card - Current Program (per channel)
 
 ```yaml
 type: entities
@@ -363,20 +425,82 @@ Noopy TV expose les endpoints suivants sur `http://[ip-apple-tv]:8765` :
 | `/api/v1/channel/{id}` | Détails d'une chaîne |
 | `/api/v1/player` | Statut du player & chaîne en cours |
 | `POST /api/v1/player/play` | Changer de chaîne |
+| `/api/v1/proxy/image?url=` | Proxy d'images (pour les logos) |
 
 ## 📱 Exemples d'utilisation
 
-### Carte Lovelace - Sélecteur de chaînes
+### Carte Lovelace - En cours de lecture avec Logo
+
+La carte complète affichant la chaîne en cours avec logo, programme et progression :
+
+```yaml
+type: vertical-stack
+cards:
+  - type: markdown
+    title: 📺 En cours de lecture
+    content: |
+      {% set channel = state_attr('select.noopy_tv_chaine_tv', 'current_channel') %}
+      {% set program = state_attr('select.noopy_tv_chaine_tv', 'current_program') %}
+      {% set logo = state_attr('select.noopy_tv_chaine_tv', 'logo_proxy_url') %}
+      {% set progress = state_attr('select.noopy_tv_chaine_tv', 'progress_percent') %}
+      {% set active = state_attr('select.noopy_tv_chaine_tv', 'player_active') %}
+      {% if active and channel %}
+      <img src="{{ logo }}" style="height: 60px; margin-bottom: 10px;" />
+      
+      ## {{ channel }}
+      
+      **{{ program | default('Chargement...') }}**
+      
+      ⏱️ Progression : {{ (progress | float(0)) | round(0) }}%
+      {% else %}
+      *Aucune lecture en cours*
+      {% endif %}
+  - type: entities
+    entities:
+      - entity: select.noopy_tv_chaine_tv
+        name: Changer de chaîne
+```
+
+### Carte Lovelace - Sélecteur simple
 
 ```yaml
 type: entities
 title: 📺 Noopy TV
 entities:
-  - entity: select.noopy_tv_channel_selector
+  - entity: select.noopy_tv_chaine_tv
     name: Chaîne
 ```
 
-### Carte Lovelace - Programme en cours
+### Carte Lovelace - Compacte avec barre de progression
+
+```yaml
+type: vertical-stack
+cards:
+  - type: markdown
+    content: |
+      {% set c = 'select.noopy_tv_chaine_tv' %}
+      {% set active = state_attr(c, 'player_active') %}
+      {% set channel = state_attr(c, 'current_channel') %}
+      {% set program = state_attr(c, 'current_program') %}
+      {% set progress = state_attr(c, 'progress_percent') | float(0) | round(0) %}
+      
+      {% if active and channel %}
+      ## 📺 {{ channel }}
+      🎬 **{{ program }}**
+      
+      <progress value="{{ progress }}" max="100" style="width:100%; height:8px; border-radius:4px;"></progress>
+      <small>{{ progress }}% terminé</small>
+      {% else %}
+      ## 📵 Player inactif
+      *Lancez une chaîne sur Noopy TV*
+      {% endif %}
+  - type: entities
+    entities:
+      - entity: select.noopy_tv_chaine_tv
+        name: 📡 Changer de chaîne
+```
+
+### Carte Lovelace - Programme en cours (par chaîne)
 
 ```yaml
 type: entities
