@@ -46,7 +46,24 @@ This integration connects Home Assistant to your Noopy TV app. **No manual confi
 
 **Important**: Noopy TV must be **open** on your Apple TV for Home Assistant to connect.
 
-### Home Assistant Side
+### Home Assistant Side (via HACS - Recommended)
+
+1. Open **HACS** in Home Assistant
+2. Click on the **3 dots menu** (⋮) in the top right corner
+3. Select **Custom repositories**
+4. Paste the repository URL: `https://github.com/Seidel76/noopy-tv-homeassistant`
+5. Select **Integration** as the category
+6. Click **Add**
+7. Search for **Noopy TV** in HACS
+8. Click **Download**
+9. **Restart Home Assistant**
+10. Go to **Settings** → **Devices & Services** → **+ Add Integration**
+11. Search for **Noopy TV** and follow the setup
+
+### Home Assistant Side (Manual)
+
+<details>
+<summary>Click to expand manual installation instructions</summary>
 
 1. Copy the `custom_components/noopy_tv` folder to your `config/custom_components/` directory
 
@@ -66,6 +83,8 @@ config/
 ```
 
 2. Restart Home Assistant
+
+</details>
 
 3. **That's it!** Home Assistant should automatically discover Noopy TV
 
@@ -334,7 +353,24 @@ Cette intégration permet de connecter automatiquement Home Assistant à votre a
 
 **Important** : L'app Noopy TV doit être **ouverte** sur votre Apple TV pour que Home Assistant puisse s'y connecter.
 
-### Côté Home Assistant
+### Côté Home Assistant (via HACS - Recommandé)
+
+1. Ouvrez **HACS** dans Home Assistant
+2. Cliquez sur le **menu 3 points** (⋮) en haut à droite
+3. Sélectionnez **Dépôts personnalisés**
+4. Collez l'URL du dépôt : `https://github.com/Seidel76/noopy-tv-homeassistant`
+5. Sélectionnez **Intégration** comme catégorie
+6. Cliquez sur **Ajouter**
+7. Recherchez **Noopy TV** dans HACS
+8. Cliquez sur **Télécharger**
+9. **Redémarrez Home Assistant**
+10. Allez dans **Paramètres** → **Appareils et services** → **+ Ajouter une intégration**
+11. Recherchez **Noopy TV** et suivez la configuration
+
+### Côté Home Assistant (Manuel)
+
+<details>
+<summary>Cliquez pour afficher les instructions d'installation manuelle</summary>
 
 1. Copiez le dossier `custom_components/noopy_tv` dans votre dossier `config/custom_components/`
 
@@ -354,6 +390,8 @@ config/
 ```
 
 2. Redémarrez Home Assistant
+
+</details>
 
 3. **C'est tout !** Home Assistant devrait découvrir automatiquement Noopy TV
 
