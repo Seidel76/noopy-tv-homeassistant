@@ -1,5 +1,3 @@
-# Services pour l'intégration Noopy TV
-
 refresh:
   name: Rafraîchir
   description: Force le rafraîchissement des données depuis Noopy TV.

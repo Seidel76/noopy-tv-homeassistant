@@ -1,8 +1,7 @@
-"""Client API pour Noopy TV (connexion directe à l'app)."""
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -13,8 +12,6 @@ _LOGGER = logging.getLogger(__name__)
 
 @dataclass
 class NoopyChannel:
-    """Représente une chaîne TV Noopy."""
-    
     id: str
     name: str
     stream_url: str | None = None
@@ -29,16 +26,12 @@ class NoopyChannel:
 
 @dataclass
 class NoopyCategory:
-    """Représente une catégorie de chaînes."""
-    
     name: str
     channels_count: int = 0
 
 
 @dataclass
 class NoopyProgram:
-    """Représente un programme EPG."""
-    
     id: str
     title: str
     start: datetime
@@ -49,44 +42,31 @@ class NoopyProgram:
     
     @property
     def is_current(self) -> bool:
-        """Vérifie si le programme est en cours."""
         now = datetime.now(timezone.utc)
         return self.start <= now < self.end
 
 
 class NoopyTVAPIError(Exception):
-    """Erreur de l'API Noopy TV."""
     pass
 
 
 class NoopyTVConnectionError(NoopyTVAPIError):
-    """Erreur de connexion à Noopy TV."""
     pass
 
 
 class NoopyTVAPI:
-    """Client API pour se connecter à l'app Noopy TV sur le réseau local."""
     
-    def __init__(
-        self,
-        host: str,
-        port: int = 8765,
-        session: aiohttp.ClientSession | None = None,
-    ) -> None:
-        """Initialise le client API."""
+    def __init__(self, host: str, port: int = 8765, session: aiohttp.ClientSession | None = None) -> None:
         self._host = host
         self._port = port
         self._session = session
         self._own_session = session is None
         self._base_url = f"http://{host}:{port}"
-        
-        # Cache
         self._channels: dict[str, NoopyChannel] = {}
         self._categories: list[NoopyCategory] = []
         self._info: dict[str, Any] = {}
     
     async def _ensure_session(self) -> aiohttp.ClientSession:
-        """S'assure qu'une session HTTP est disponible."""
         if self._session is None or self._session.closed:
             timeout = aiohttp.ClientTimeout(total=30)
             self._session = aiohttp.ClientSession(timeout=timeout)
@@ -94,12 +74,10 @@ class NoopyTVAPI:
         return self._session
     
     async def close(self) -> None:
-        """Ferme la session HTTP."""
         if self._own_session and self._session and not self._session.closed:
             await self._session.close()
     
     async def _request(self, endpoint: str) -> Any:
-        """Effectue une requête HTTP vers l'API Noopy TV."""
         session = await self._ensure_session()
         url = f"{self._base_url}{endpoint}"
         
@@ -107,7 +85,6 @@ class NoopyTVAPI:
             async with session.get(url) as response:
                 if response.status != 200:
                     raise NoopyTVAPIError(f"Erreur HTTP {response.status}")
-                
                 return await response.json()
         except aiohttp.ClientConnectorError as err:
             raise NoopyTVConnectionError(f"Impossible de se connecter à Noopy TV: {err}") from err
@@ -115,13 +92,11 @@ class NoopyTVAPI:
             raise NoopyTVAPIError(f"Erreur de connexion: {err}") from err
     
     async def get_info(self) -> dict[str, Any]:
-        """Récupère les informations sur le serveur Noopy TV."""
         data = await self._request("/api/v1/info")
         self._info = data
         return data
     
     async def test_connection(self) -> bool:
-        """Teste la connexion à Noopy TV."""
         try:
             info = await self.get_info()
             return info.get("name") == "Noopy TV"
@@ -129,9 +104,7 @@ class NoopyTVAPI:
             return False
     
     async def get_channels(self) -> list[NoopyChannel]:
-        """Récupère toutes les chaînes."""
         data = await self._request("/api/v1/channels")
-        
         channels_data = data.get("channels", [])
         channels = []
         
@@ -167,41 +140,28 @@ class NoopyTVAPI:
         return channels
     
     async def get_categories(self) -> list[NoopyCategory]:
-        """Récupère les catégories."""
         data = await self._request("/api/v1/categories")
-        
         categories_data = data.get("categories", [])
         self._categories = [
-            NoopyCategory(
-                name=item.get("name", ""),
-                channels_count=item.get("channels_count", 0),
-            )
+            NoopyCategory(name=item.get("name", ""), channels_count=item.get("channels_count", 0))
             for item in categories_data
         ]
-        
         return self._categories
     
     async def get_now_playing(self) -> list[dict[str, Any]]:
-        """Récupère tous les programmes en cours."""
         data = await self._request("/api/v1/now")
         return data.get("now_playing", [])
     
     async def get_player_status(self) -> dict[str, Any]:
-        """Récupère l'état du player (chaîne en cours de lecture)."""
         data = await self._request("/api/v1/player")
         return data
     
     async def play_channel(self, channel_id: str) -> bool:
-        """Demande le changement de chaîne."""
         session = await self._ensure_session()
         url = f"{self._base_url}/api/v1/player/play"
         
         try:
-            async with session.post(
-                url,
-                json={"channel_id": channel_id},
-                headers={"Content-Type": "application/json"}
-            ) as response:
+            async with session.post(url, json={"channel_id": channel_id}, headers={"Content-Type": "application/json"}) as response:
                 if response.status == 200:
                     result = await response.json()
                     return result.get("success", False)
@@ -211,7 +171,6 @@ class NoopyTVAPI:
             return False
     
     async def get_channel_detail(self, channel_id: str) -> dict[str, Any] | None:
-        """Récupère les détails d'une chaîne spécifique."""
         try:
             data = await self._request(f"/api/v1/channel/{channel_id}")
             return data
@@ -219,7 +178,6 @@ class NoopyTVAPI:
             return None
     
     async def refresh_data(self) -> dict[str, Any]:
-        """Rafraîchit toutes les données."""
         channels = await self.get_channels()
         categories = await self.get_categories()
         player_status = await self.get_player_status()
@@ -258,15 +216,12 @@ class NoopyTVAPI:
     
     @property
     def channels(self) -> dict[str, NoopyChannel]:
-        """Retourne les chaînes en cache."""
         return self._channels
     
     @property
     def categories(self) -> list[NoopyCategory]:
-        """Retourne les catégories en cache."""
         return self._categories
     
     @property
     def info(self) -> dict[str, Any]:
-        """Retourne les infos du serveur."""
         return self._info
