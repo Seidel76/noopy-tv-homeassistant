@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="custom_components/noopy_tv/logo@2x.png" alt="Noopy TV" width="128" height="128">
+  <img src="custom_components/noopy_tv/logo@2x.png" alt="OneTV" width="128" height="128">
 </p>
 
-<h1 align="center">Noopy TV for Home Assistant</h1>
+<h1 align="center">OneTV for Home Assistant</h1>
 
 <p align="center">
   <a href="https://github.com/hacs/integration"><img src="https://img.shields.io/badge/HACS-Custom-41BDF5.svg" alt="HACS Custom"></a>
@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  Control your Noopy TV app directly from Home Assistant with automatic discovery.
+  Control your OneTV app directly from Home Assistant with automatic discovery.
 </p>
 
 ---
@@ -27,8 +27,8 @@
 
 ## Requirements
 
-- Noopy TV app running on Apple TV (tvOS)
-- Home Assistant integration enabled in Noopy TV settings
+- OneTV app running on Apple TV (tvOS)
+- Home Assistant integration enabled in OneTV settings
 - Both devices on the same local network
 
 ## Installation
@@ -37,7 +37,7 @@
 
 1. Open HACS → ⋮ → **Custom repositories**
 2. Add `https://github.com/Seidel76/noopy-tv-homeassistant` as **Integration**
-3. Search for **Noopy TV** and install
+3. Search for **OneTV** and install
 4. Restart Home Assistant
 5. Add via **Settings → Devices & Services → Add Integration**
 
@@ -107,7 +107,7 @@ automation:
 
 ## API Reference
 
-Noopy TV exposes a local REST API at `http://[apple-tv-ip]:8765`:
+OneTV exposes a local REST API at `http://[apple-tv-ip]:8765`:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -122,7 +122,7 @@ Noopy TV exposes a local REST API at `http://[apple-tv-ip]:8765`:
 
 | Issue | Solution |
 |-------|----------|
-| Not discovered | Ensure Noopy TV is open and HA integration is enabled |
+| Not discovered | Ensure OneTV is open and HA integration is enabled |
 | Entity unavailable | App closed or Apple TV is sleeping |
 | Connection refused | Check both devices are on the same network |
 

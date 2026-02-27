@@ -78,8 +78,8 @@ class NoopyTVStatsSensor(CoordinatorEntity, SensorEntity):
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
-            name="Noopy TV",
-            manufacturer="Noopy TV",
+            name="OneTV",
+            manufacturer="OneTV",
             model="IPTV App",
             sw_version="1.0.0",
         )
@@ -136,8 +136,8 @@ class NoopyTVChannelSensor(CoordinatorEntity, SensorEntity):
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry.entry_id)},
-            name="Noopy TV",
-            manufacturer="Noopy TV",
+            name="OneTV",
+            manufacturer="OneTV",
             model="IPTV App",
             sw_version="1.0.0",
         )

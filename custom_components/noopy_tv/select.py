@@ -84,8 +84,8 @@ class NoopyTVChannelSelect(CoordinatorEntity, SelectEntity):
     def device_info(self) -> dict[str, Any]:
         return {
             "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name": "Noopy TV",
-            "manufacturer": "Noopy TV",
+            "name": "OneTV",
+            "manufacturer": "OneTV",
             "model": "Apple TV",
             "sw_version": "1.0",
         }
@@ -212,8 +212,8 @@ class NoopyTVCategorySelect(CoordinatorEntity, SelectEntity):
     def device_info(self) -> dict[str, Any]:
         return {
             "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name": "Noopy TV",
-            "manufacturer": "Noopy TV",
+            "name": "OneTV",
+            "manufacturer": "OneTV",
             "model": "Apple TV",
             "sw_version": "1.0",
         }

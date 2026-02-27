@@ -87,7 +87,7 @@ class NoopyTVAPI:
                     raise NoopyTVAPIError(f"Erreur HTTP {response.status}")
                 return await response.json()
         except aiohttp.ClientConnectorError as err:
-            raise NoopyTVConnectionError(f"Impossible de se connecter à Noopy TV: {err}") from err
+            raise NoopyTVConnectionError(f"Impossible de se connecter à OneTV: {err}") from err
         except aiohttp.ClientError as err:
             raise NoopyTVAPIError(f"Erreur de connexion: {err}") from err
     
@@ -99,7 +99,7 @@ class NoopyTVAPI:
     async def test_connection(self) -> bool:
         try:
             info = await self.get_info()
-            return info.get("name") == "Noopy TV"
+            return info.get("name") == "OneTV"
         except NoopyTVAPIError:
             return False
     
@@ -136,7 +136,7 @@ class NoopyTVAPI:
             channels.append(channel)
             self._channels[channel.id] = channel
         
-        _LOGGER.debug("Récupéré %d chaînes depuis Noopy TV", len(channels))
+        _LOGGER.debug("Récupéré %d chaînes depuis OneTV", len(channels))
         return channels
     
     async def get_categories(self) -> list[NoopyCategory]:

@@ -38,7 +38,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     try:
         if not await api.test_connection():
-            _LOGGER.error("Impossible de se connecter à Noopy TV")
+            _LOGGER.error("Impossible de se connecter à OneTV")
             return False
     except NoopyTVConnectionError as err:
         _LOGGER.error("Erreur de connexion: %s", err)
@@ -83,7 +83,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     
-    _LOGGER.info("Noopy TV configuré: %s:%d", entry.data[CONF_HOST], entry.data.get(CONF_PORT, DEFAULT_PORT))
+    _LOGGER.info("OneTV configuré: %s:%d", entry.data[CONF_HOST], entry.data.get(CONF_PORT, DEFAULT_PORT))
     
     return True
 
@@ -117,7 +117,7 @@ class NoopyTVDataUpdateCoordinator(DataUpdateCoordinator):
         try:
             return await self.api.refresh_data()
         except NoopyTVConnectionError as err:
-            raise UpdateFailed(f"Noopy TV non accessible: {err}") from err
+            raise UpdateFailed(f"OneTV non accessible: {err}") from err
         except NoopyTVAPIError as err:
             raise UpdateFailed(f"Erreur API: {err}") from err
         except Exception as err:

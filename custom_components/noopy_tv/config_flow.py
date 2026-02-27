@@ -34,11 +34,11 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
     try:
         info = await api.get_info()
         
-        if info.get("name") != "Noopy TV":
-            raise NoopyTVAPIError("Ce n'est pas un serveur Noopy TV")
+        if info.get("name") != "OneTV":
+            raise NoopyTVAPIError("Ce n'est pas un serveur OneTV")
         
         return {
-            "title": f"Noopy TV ({data[CONF_HOST]})",
+            "title": f"OneTV ({data[CONF_HOST]})",
             "total_channels": info.get("total_channels", 0),
             "total_categories": info.get("total_categories", 0),
         }
@@ -53,7 +53,7 @@ class NoopyTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         self._discovered_host: str | None = None
         self._discovered_port: int = DEFAULT_PORT
-        self._discovered_name: str = "Noopy TV"
+        self._discovered_name: str = "OneTV"
     
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         errors: dict[str, str] = {}
@@ -77,7 +77,7 @@ class NoopyTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors)
     
     async def async_step_zeroconf(self, discovery_info: zeroconf.ZeroconfServiceInfo) -> FlowResult:
-        _LOGGER.info("Noopy TV découvert: %s", discovery_info)
+        _LOGGER.info("OneTV découvert: %s", discovery_info)
         
         self._discovered_host = str(discovery_info.host)
         self._discovered_port = discovery_info.port or DEFAULT_PORT
@@ -109,7 +109,7 @@ class NoopyTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_zeroconf_confirm(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         if user_input is not None:
             return self.async_create_entry(
-                title=f"Noopy TV ({self._discovered_host})",
+                title=f"OneTV ({self._discovered_host})",
                 data={CONF_HOST: self._discovered_host, CONF_PORT: self._discovered_port},
             )
         

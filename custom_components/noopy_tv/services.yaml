@@ -1,10 +1,10 @@
 refresh:
   name: Rafraîchir
-  description: Force le rafraîchissement des données depuis Noopy TV.
+  description: Force le rafraîchissement des données depuis OneTV.
 
 play_channel:
   name: Changer de chaîne
-  description: Change la chaîne en cours de lecture sur Noopy TV.
+  description: Change la chaîne en cours de lecture sur OneTV.
   fields:
     channel_id:
       name: ID de la chaîne
