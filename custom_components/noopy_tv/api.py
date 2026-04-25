@@ -55,34 +55,53 @@ class NoopyTVConnectionError(NoopyTVAPIError):
 
 
 class NoopyTVAPI:
-    
-    def __init__(self, host: str, port: int = 8765, session: aiohttp.ClientSession | None = None) -> None:
+
+    def __init__(
+        self,
+        host: str,
+        port: int = 8765,
+        session: aiohttp.ClientSession | None = None,
+        api_key: str | None = None,
+    ) -> None:
         self._host = host
         self._port = port
         self._session = session
         self._own_session = session is None
         self._base_url = f"http://{host}:{port}"
+        self._api_key = api_key
         self._channels: dict[str, NoopyChannel] = {}
         self._categories: list[NoopyCategory] = []
         self._info: dict[str, Any] = {}
-    
+
     async def _ensure_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
             timeout = aiohttp.ClientTimeout(total=30)
             self._session = aiohttp.ClientSession(timeout=timeout)
             self._own_session = True
         return self._session
-    
+
     async def close(self) -> None:
         if self._own_session and self._session and not self._session.closed:
             await self._session.close()
-    
+
+    def _auth_headers(self) -> dict[str, str]:
+        if self._api_key:
+            return {"X-API-Key": self._api_key}
+        return {}
+
+    @property
+    def api_key(self) -> str | None:
+        return self._api_key
+
+    def set_api_key(self, api_key: str) -> None:
+        self._api_key = api_key
+
     async def _request(self, endpoint: str) -> Any:
         session = await self._ensure_session()
         url = f"{self._base_url}{endpoint}"
-        
+
         try:
-            async with session.get(url) as response:
+            async with session.get(url, headers=self._auth_headers()) as response:
                 if response.status != 200:
                     raise NoopyTVAPIError(f"Erreur HTTP {response.status}")
                 return await response.json()
@@ -90,12 +109,18 @@ class NoopyTVAPI:
             raise NoopyTVConnectionError(f"Impossible de se connecter à OneTV: {err}") from err
         except aiohttp.ClientError as err:
             raise NoopyTVAPIError(f"Erreur de connexion: {err}") from err
-    
+
     async def get_info(self) -> dict[str, Any]:
+        # /api/v1/info is public — no auth required (used to discover the api_key)
         data = await self._request("/api/v1/info")
         self._info = data
+        # Auto-pick up the api_key advertised by the server
+        if not self._api_key and isinstance(data, dict):
+            advertised = data.get("api_key")
+            if isinstance(advertised, str) and advertised:
+                self._api_key = advertised
         return data
-    
+
     async def test_connection(self) -> bool:
         try:
             info = await self.get_info()
@@ -159,9 +184,11 @@ class NoopyTVAPI:
     async def play_channel(self, channel_id: str) -> bool:
         session = await self._ensure_session()
         url = f"{self._base_url}/api/v1/player/play"
-        
+
+        headers = {"Content-Type": "application/json", **self._auth_headers()}
+
         try:
-            async with session.post(url, json={"channel_id": channel_id}, headers={"Content-Type": "application/json"}) as response:
+            async with session.post(url, json={"channel_id": channel_id}, headers=headers) as response:
                 if response.status == 200:
                     result = await response.json()
                     return result.get("success", False)

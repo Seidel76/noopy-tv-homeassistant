@@ -11,6 +11,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .api import NoopyTVAPI, NoopyTVAPIError, NoopyTVConnectionError
 from .const import (
+    CONF_API_KEY,
     CONF_HOST,
     CONF_PORT,
     CONF_SCAN_INTERVAL,
@@ -34,8 +35,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         host=entry.data[CONF_HOST],
         port=entry.data.get(CONF_PORT, DEFAULT_PORT),
         session=session,
+        api_key=entry.data.get(CONF_API_KEY),
     )
-    
+
     try:
         if not await api.test_connection():
             _LOGGER.error("Impossible de se connecter à OneTV")
@@ -46,6 +48,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except NoopyTVAPIError as err:
         _LOGGER.error("Erreur API: %s", err)
         return False
+
+    # Persist the api_key the server may have advertised via /api/v1/info
+    # so subsequent restarts don't need to re-fetch it.
+    if api.api_key and entry.data.get(CONF_API_KEY) != api.api_key:
+        new_data = {**entry.data, CONF_API_KEY: api.api_key}
+        hass.config_entries.async_update_entry(entry, data=new_data)
     
     scan_interval = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
     if isinstance(scan_interval, int):
