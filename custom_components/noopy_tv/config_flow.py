@@ -12,7 +12,7 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import NoopyTVAPI, NoopyTVAPIError, NoopyTVConnectionError
-from .const import CONF_HOST, CONF_PORT, CONF_SCAN_INTERVAL, DEFAULT_PORT, DEFAULT_SCAN_INTERVAL_SECONDS, DOMAIN
+from .const import CONF_API_KEY, CONF_HOST, CONF_PORT, CONF_SCAN_INTERVAL, DEFAULT_PORT, DEFAULT_SCAN_INTERVAL_SECONDS, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -24,19 +24,25 @@ STEP_USER_DATA_SCHEMA = vol.Schema({
 
 async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
     session = async_get_clientsession(hass)
-    
+
     api = NoopyTVAPI(
         host=data[CONF_HOST],
         port=data.get(CONF_PORT, DEFAULT_PORT),
         session=session,
+        api_key=data.get(CONF_API_KEY),
     )
-    
+
     try:
         info = await api.get_info()
-        
+
         if info.get("name") != "OneTV":
             raise NoopyTVAPIError("Ce n'est pas un serveur OneTV")
-        
+
+        # Pick up the api_key advertised by /api/v1/info so all subsequent
+        # authenticated endpoints can be reached without manual entry.
+        if api.api_key:
+            data[CONF_API_KEY] = api.api_key
+
         return {
             "title": f"OneTV ({data[CONF_HOST]})",
             "total_channels": info.get("total_channels", 0),
@@ -54,6 +60,7 @@ class NoopyTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._discovered_host: str | None = None
         self._discovered_port: int = DEFAULT_PORT
         self._discovered_name: str = "OneTV"
+        self._discovered_api_key: str | None = None
     
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         errors: dict[str, str] = {}
@@ -78,39 +85,61 @@ class NoopyTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     
     async def async_step_zeroconf(self, discovery_info: zeroconf.ZeroconfServiceInfo) -> FlowResult:
         _LOGGER.info("OneTV découvert: %s", discovery_info)
-        
+
         self._discovered_host = str(discovery_info.host)
         self._discovered_port = discovery_info.port or DEFAULT_PORT
         self._discovered_name = discovery_info.name.replace("._noopytv._tcp.local.", "")
-        
-        properties = discovery_info.properties
+
+        # Extract the api_key from the Bonjour TXT record (key "apiKey").
+        # Allows zero-config auto-pairing without copy-paste from tvOS.
+        properties = discovery_info.properties or {}
         if properties:
             _LOGGER.debug("Propriétés TXT: %s", properties)
-        
+        advertised_key = properties.get("apiKey") or properties.get("api_key")
+        if isinstance(advertised_key, bytes):
+            advertised_key = advertised_key.decode("utf-8", errors="ignore")
+        if isinstance(advertised_key, str) and advertised_key:
+            self._discovered_api_key = advertised_key
+
         await self.async_set_unique_id(f"noopytv_{self._discovered_host}_{self._discovered_port}")
         self._abort_if_unique_id_configured()
-        
+
         try:
             session = async_get_clientsession(self.hass)
-            api = NoopyTVAPI(host=self._discovered_host, port=self._discovered_port, session=session)
-            
+            api = NoopyTVAPI(
+                host=self._discovered_host,
+                port=self._discovered_port,
+                session=session,
+                api_key=self._discovered_api_key,
+            )
+
             if not await api.test_connection():
                 return self.async_abort(reason="cannot_connect")
-            
+
+            # Fallback: pick up the key from /api/v1/info if the TXT record didn't carry one.
+            if not self._discovered_api_key and api.api_key:
+                self._discovered_api_key = api.api_key
+
             await api.close()
         except Exception as err:
             _LOGGER.warning("Erreur lors du test de connexion: %s", err)
             return self.async_abort(reason="cannot_connect")
-        
+
         self.context["title_placeholders"] = {"name": self._discovered_name, "host": self._discovered_host}
-        
+
         return await self.async_step_zeroconf_confirm()
     
     async def async_step_zeroconf_confirm(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         if user_input is not None:
+            data: dict[str, Any] = {
+                CONF_HOST: self._discovered_host,
+                CONF_PORT: self._discovered_port,
+            }
+            if self._discovered_api_key:
+                data[CONF_API_KEY] = self._discovered_api_key
             return self.async_create_entry(
                 title=f"OneTV ({self._discovered_host})",
-                data={CONF_HOST: self._discovered_host, CONF_PORT: self._discovered_port},
+                data=data,
             )
         
         return self.async_show_form(
