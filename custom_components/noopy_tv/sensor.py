@@ -1,11 +1,18 @@
+"""OneTV sensors v3.0.0 — design agrégé.
+
+Avant (v2.x): un sensor par chaîne → 1000+ entities pour grosses playlists, recorder
+HA explose, UI inutilisable. Désormais : 2 sensors globaux (stats + current_channel)
+qui exposent toutes les infos via attributes.
+"""
 from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import quote
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -18,6 +25,7 @@ from .const import (
     ATTR_CURRENT_PROGRAM_ICON,
     ATTR_CURRENT_PROGRAM_START,
     ATTR_LOGO_URL,
+    ATTR_PLAYER_ACTIVE,
     ATTR_PROGRESS_PERCENT,
     ATTR_STREAM_ID,
     ATTR_STREAM_URL,
@@ -30,50 +38,34 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
     data = hass.data[DOMAIN][entry.entry_id]
     coordinator = data["coordinator"]
-    
-    entities: list[SensorEntity] = []
-    entities.append(NoopyTVStatsSensor(coordinator, entry))
-    
-    if coordinator.data and "channels" in coordinator.data:
-        for channel_id, channel_data in coordinator.data["channels"].items():
-            entities.append(NoopyTVChannelSensor(coordinator, entry, channel_id, channel_data["name"]))
-    
+
+    entities: list[SensorEntity] = [
+        NoopyTVStatsSensor(coordinator, entry),
+        NoopyTVCurrentChannelSensor(coordinator, entry),
+    ]
     async_add_entities(entities)
-    
-    @callback
-    def async_add_new_channels() -> None:
-        if not coordinator.data or "channels" not in coordinator.data:
-            return
-        
-        existing_ids = {entity.channel_id for entity in entities if isinstance(entity, NoopyTVChannelSensor)}
-        
-        new_entities = []
-        for channel_id, channel_data in coordinator.data["channels"].items():
-            if channel_id not in existing_ids:
-                new_entity = NoopyTVChannelSensor(coordinator, entry, channel_id, channel_data["name"])
-                new_entities.append(new_entity)
-                entities.append(new_entity)
-        
-        if new_entities:
-            async_add_entities(new_entities)
-    
-    entry.async_on_unload(coordinator.async_add_listener(async_add_new_channels))
+    _LOGGER.info("OneTV v3.0.0 : %d sensor(s) global(aux) créé(s) (vs N+1 par chaîne en v2.x)", len(entities))
 
 
 class NoopyTVStatsSensor(CoordinatorEntity, SensorEntity):
-    
+    """Stats globales : nombre total de chaînes, catégories, etc."""
+
     _attr_has_entity_name = True
     _attr_name = "Statistiques"
     _attr_icon = "mdi:television-box"
-    
+
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_stats"
-    
+
     @property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
@@ -81,57 +73,56 @@ class NoopyTVStatsSensor(CoordinatorEntity, SensorEntity):
             name="OneTV",
             manufacturer="OneTV",
             model="IPTV App",
-            sw_version="1.0.0",
+            sw_version="3.0.0",
         )
-    
+
     @property
     def native_value(self) -> int | None:
         if not self.coordinator.data:
             return None
         return self.coordinator.data.get(ATTR_TOTAL_CHANNELS, 0)
-    
+
     @property
     def native_unit_of_measurement(self) -> str:
         return "chaînes"
-    
+
     @property
     def state_class(self) -> SensorStateClass:
         return SensorStateClass.MEASUREMENT
-    
+
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         if not self.coordinator.data:
             return {}
-        
+
         data = self.coordinator.data
-        attrs = {
+        attrs: dict[str, Any] = {
             ATTR_TOTAL_CHANNELS: data.get(ATTR_TOTAL_CHANNELS, 0),
             ATTR_TOTAL_CATEGORIES: data.get(ATTR_TOTAL_CATEGORIES, 0),
         }
-        
+
         if "categories" in data:
             attrs["categories"] = list(data["categories"].keys())
-        
+
         return attrs
 
 
-class NoopyTVChannelSensor(CoordinatorEntity, SensorEntity):
-    
+class NoopyTVCurrentChannelSensor(CoordinatorEntity, SensorEntity):
+    """Sensor agrégé : la chaîne en cours de lecture + son programme.
+
+    Remplace les 1000+ sensors par-chaîne de v2.x. Tout est dans `extra_state_attributes`
+    pour permettre aux templates HA / cards Lovelace d'extraire ce qu'ils veulent.
+    """
+
     _attr_has_entity_name = True
+    _attr_name = "Chaîne en cours"
     _attr_icon = "mdi:television-classic"
-    
-    def __init__(self, coordinator, entry: ConfigEntry, channel_id: str, name: str) -> None:
+
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
         self._entry = entry
-        self._channel_id = channel_id
-        self._name = name
-        self._attr_unique_id = f"{entry.entry_id}_channel_{channel_id}"
-        self._attr_name = name
-    
-    @property
-    def channel_id(self) -> str:
-        return self._channel_id
-    
+        self._attr_unique_id = f"{entry.entry_id}_current_channel"
+
     @property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
@@ -139,59 +130,74 @@ class NoopyTVChannelSensor(CoordinatorEntity, SensorEntity):
             name="OneTV",
             manufacturer="OneTV",
             model="IPTV App",
-            sw_version="1.0.0",
+            sw_version="3.0.0",
         )
-    
-    @property
-    def _channel_data(self) -> dict[str, Any] | None:
-        if not self.coordinator.data or "channels" not in self.coordinator.data:
+
+    def _current_channel(self) -> dict[str, Any] | None:
+        if not self.coordinator.data:
             return None
-        return self.coordinator.data["channels"].get(self._channel_id)
-    
-    @property
-    def available(self) -> bool:
-        return self.coordinator.last_update_success and self._channel_data is not None
-    
+        player = self.coordinator.data.get("player", {}) or {}
+        return player.get("current_channel")
+
     @property
     def native_value(self) -> str | None:
-        data = self._channel_data
-        if not data:
-            return None
-        return data.get(ATTR_CURRENT_PROGRAM, "Aucun programme")
-    
+        ch = self._current_channel()
+        if not ch:
+            return "Aucune lecture"
+        return ch.get("name") or "Aucune lecture"
+
     @property
     def entity_picture(self) -> str | None:
-        data = self._channel_data
-        if not data:
+        ch = self._current_channel()
+        if not ch:
             return None
-        return data.get(ATTR_CURRENT_PROGRAM_ICON) or data.get(ATTR_LOGO_URL)
-    
+        logo_url = ch.get("logo_url")
+        if not logo_url:
+            return None
+        host = self._entry.data.get("host", "")
+        port = self._entry.data.get("port", 8765)
+        encoded = quote(logo_url, safe="")
+        return f"http://{host}:{port}/api/v1/proxy/image?url={encoded}&size=80"
+
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        data = self._channel_data
-        if not data:
+        if not self.coordinator.data:
             return {}
-        
-        attrs = {
-            "channel_id": data.get("id"),
-            "channel_name": data.get("name"),
-            ATTR_LOGO_URL: data.get(ATTR_LOGO_URL),
-            ATTR_STREAM_URL: data.get(ATTR_STREAM_URL),
-            ATTR_CATEGORY: data.get("category"),
-            ATTR_TVG_ID: data.get("tvg_id"),
-            ATTR_STREAM_ID: data.get("stream_id"),
-            "has_catchup": data.get("has_catchup", False),
-            "catchup_days": data.get("catchup_days", 0),
+
+        player = self.coordinator.data.get("player", {}) or {}
+        attrs: dict[str, Any] = {
+            ATTR_PLAYER_ACTIVE: player.get("is_active", False),
         }
-        
-        if ATTR_CURRENT_PROGRAM in data:
-            attrs.update({
-                ATTR_CURRENT_PROGRAM: data.get(ATTR_CURRENT_PROGRAM),
-                ATTR_CURRENT_PROGRAM_START: data.get(ATTR_CURRENT_PROGRAM_START),
-                ATTR_CURRENT_PROGRAM_END: data.get(ATTR_CURRENT_PROGRAM_END),
-                ATTR_CURRENT_PROGRAM_DESCRIPTION: data.get(ATTR_CURRENT_PROGRAM_DESCRIPTION),
-                ATTR_CURRENT_PROGRAM_ICON: data.get(ATTR_CURRENT_PROGRAM_ICON),
-                ATTR_PROGRESS_PERCENT: data.get(ATTR_PROGRESS_PERCENT),
-            })
-        
+
+        ch = self._current_channel()
+        if not ch:
+            return attrs
+
+        # Channel-level attributes
+        attrs["channel_id"] = ch.get("id")
+        attrs["channel_name"] = ch.get("name")
+        attrs[ATTR_LOGO_URL] = ch.get("logo_url")
+        attrs[ATTR_STREAM_URL] = ch.get("stream_url")
+        attrs[ATTR_CATEGORY] = ch.get("category")
+        attrs[ATTR_TVG_ID] = ch.get("tvg_id")
+        attrs[ATTR_STREAM_ID] = ch.get("stream_id")
+
+        # Logo proxy URL (avoids CORS / auth headers in HA frontend)
+        logo_url = ch.get("logo_url")
+        if logo_url:
+            host = self._entry.data.get("host", "")
+            port = self._entry.data.get("port", 8765)
+            encoded = quote(logo_url, safe="")
+            attrs["logo_proxy_url"] = f"http://{host}:{port}/api/v1/proxy/image?url={encoded}&size=80"
+
+        # Current programme attributes (guide EPG)
+        prog = ch.get("current_program")
+        if prog:
+            attrs[ATTR_CURRENT_PROGRAM] = prog.get("title")
+            attrs[ATTR_CURRENT_PROGRAM_START] = prog.get("start")
+            attrs[ATTR_CURRENT_PROGRAM_END] = prog.get("end")
+            attrs[ATTR_CURRENT_PROGRAM_DESCRIPTION] = prog.get("description")
+            attrs[ATTR_CURRENT_PROGRAM_ICON] = prog.get("icon_url")
+            attrs[ATTR_PROGRESS_PERCENT] = prog.get("progress_percent", 0)
+
         return attrs
