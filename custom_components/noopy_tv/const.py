@@ -8,8 +8,13 @@ CONF_API_KEY = "api_key"
 CONF_SCAN_INTERVAL = "scan_interval"
 
 DEFAULT_PORT = 8765
-DEFAULT_SCAN_INTERVAL = timedelta(seconds=10)
-DEFAULT_SCAN_INTERVAL_SECONDS = 10
+# ⚡️ v3.0.0 : 30s par défaut (vs 10s en v2.x). Réduit la charge sur l'app tvOS/Android TV
+# qui poll moins souvent. La chaîne en cours et le programme sont quand même mis à jour
+# en quasi temps réel grâce au cache push-based côté serveur.
+DEFAULT_SCAN_INTERVAL = timedelta(seconds=30)
+DEFAULT_SCAN_INTERVAL_SECONDS = 30
+MIN_SCAN_INTERVAL_SECONDS = 10
+MAX_SCAN_INTERVAL_SECONDS = 300
 
 ZEROCONF_SERVICE_TYPE = "_noopytv._tcp.local."
 
