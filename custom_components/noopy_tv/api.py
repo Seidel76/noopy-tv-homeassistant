@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -22,6 +23,7 @@ class NoopyChannel:
     stream_id: int | None = None
     has_catchup: bool = False
     catchup_days: int = 0
+    order: int = 0
     current_program: dict | None = None
 
 
@@ -73,6 +75,14 @@ class NoopyTVAPI:
         self._channels: dict[str, NoopyChannel] = {}
         self._categories: list[NoopyCategory] = []
         self._info: dict[str, Any] = {}
+        # ⚡️ FIX HA (2026-06-20) — cache de la liste lourde + détecteur de changement.
+        # La liste channels (jusqu'à 60k) ne change que rarement ; on évite de la
+        # re-télécharger/re-parser à chaque tick du coordinator (cf. refresh_data).
+        self._cached_channels_data: dict[str, dict[str, Any]] = {}
+        self._cached_categories_data: dict[str, dict[str, Any]] = {}
+        self._last_generation: int | None = None
+        self._last_total_channels: int | None = None
+        self._last_total_categories: int | None = None
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -97,12 +107,15 @@ class NoopyTVAPI:
     def set_api_key(self, api_key: str) -> None:
         self._api_key = api_key
 
-    async def _request(self, endpoint: str) -> Any:
+    async def _request(self, endpoint: str, timeout: float | None = None) -> Any:
         session = await self._ensure_session()
         url = f"{self._base_url}{endpoint}"
 
+        # ⚡️ FIX HA (2026-06-20) — timeout serré par requête (réseau LAN). Sans ça, un Apple TV
+        # bloqué fige le coordinator 30s. connect court (3s) + total adapté à la taille du payload.
+        req_timeout = aiohttp.ClientTimeout(connect=3, total=timeout or 12)
         try:
-            async with session.get(url, headers=self._auth_headers()) as response:
+            async with session.get(url, headers=self._auth_headers(), timeout=req_timeout) as response:
                 if response.status != 200:
                     raise NoopyTVAPIError(f"Erreur HTTP {response.status}")
                 return await response.json()
@@ -130,9 +143,11 @@ class NoopyTVAPI:
             return False
 
     async def get_channels(self) -> list[NoopyChannel]:
-        data = await self._request("/api/v1/channels")
+        # Gros payload (jusqu'à 60k chaînes) → timeout plus large.
+        data = await self._request("/api/v1/channels", timeout=20)
         channels_data = data.get("channels", [])
         channels = []
+        self._channels = {}  # reset (évite les chaînes périmées d'une playlist précédente)
 
         for item in channels_data:
             current_prog = None
@@ -157,6 +172,7 @@ class NoopyTVAPI:
                 stream_id=item.get("stream_id"),
                 has_catchup=item.get("has_catchup", False),
                 catchup_days=item.get("catchup_days", 0),
+                order=item.get("order", 0),
                 current_program=current_prog,
             )
             channels.append(channel)
@@ -165,14 +181,17 @@ class NoopyTVAPI:
         _LOGGER.debug("Récupéré %d chaînes depuis OneTV", len(channels))
         return channels
 
-    async def get_categories(self) -> list[NoopyCategory]:
+    async def get_categories(self, player_data: dict[str, Any] | None = None) -> list[NoopyCategory]:
         """Récupère les catégories — avec fallback robuste.
 
         Le serveur OneTV expose `/api/v1/categories` mais peut renvoyer une liste vide
         si le cache n'a pas encore été poussé (apps non rebuilées). Dans ce cas,
         reconstruit les catégories depuis `available_channels` du /player.
+
+        `player_data` : si fourni (déjà fetché dans le même tick), évite un 2e GET /player
+        coûteux pour le fallback.
         """
-        data = await self._request("/api/v1/categories")
+        data = await self._request("/api/v1/categories", timeout=10)
         categories_data = data.get("categories", [])
 
         if categories_data:
@@ -182,12 +201,14 @@ class NoopyTVAPI:
             ]
             return self._categories
 
-        # Fallback : reconstruire depuis available_channels du /player
-        try:
-            player = await self._request("/api/v1/player")
-            available = player.get("available_channels", []) or []
-        except NoopyTVAPIError:
-            available = []
+        # Fallback : reconstruire depuis available_channels du /player (réutilise le player déjà
+        # fetché si possible, sinon un GET ciblé).
+        if player_data is None:
+            try:
+                player_data = await self._request("/api/v1/player", timeout=6)
+            except NoopyTVAPIError:
+                player_data = {}
+        available = (player_data or {}).get("available_channels", []) or []
 
         counts: dict[str, int] = {}
         for ch in available:
@@ -211,7 +232,7 @@ class NoopyTVAPI:
 
     async def get_player_status(self) -> dict[str, Any]:
         """Récupère l'état du player legacy (`/api/v1/player`) avec available_channels."""
-        data = await self._request("/api/v1/player")
+        data = await self._request("/api/v1/player", timeout=6)
         return data
 
     async def get_playback_state(self) -> dict[str, Any]:
@@ -225,7 +246,7 @@ class NoopyTVAPI:
         l'image (poster pour film/épisode, logo pour chaîne).
         """
         try:
-            return await self._request("/api/v1/player/state")
+            return await self._request("/api/v1/player/state", timeout=6)
         except NoopyTVAPIError as err:
             _LOGGER.debug("get_playback_state failed: %s", err)
             return {}
@@ -254,48 +275,88 @@ class NoopyTVAPI:
             return None
 
     async def refresh_data(self) -> dict[str, Any]:
-        """Rafraîchit toutes les données nécessaires aux entities HA.
+        """Rafraîchit les données nécessaires aux entities HA.
 
-        Fetch en série : channels, categories (avec fallback), player (legacy avec
-        available_channels), player_state (détaillé pour VOD/episode/channel).
+        ⚡️ FIX HA (2026-06-20) — La liste lourde (channels + categories, jusqu'à 60k) n'est
+        re-téléchargée QUE lorsqu'elle a changé. Avant, chaque tick du coordinator re-pullait
+        et re-parsait tout le catalogue → réseau saturé + lag. Désormais :
+          1. `/api/v1/info` (O(1) serveur) donne `channels_generation` (repli sur les compteurs).
+          2. `player` + `playback_state` (petits, temps réel) sont fetchés en parallèle à CHAQUE tick.
+          3. La liste lourde n'est fetchée que si la génération/les compteurs ont changé ; sinon on
+             réutilise le cache → la chaîne en cours reste fluide sans marteler le catalogue.
         """
-        channels = await self.get_channels()
-        categories = await self.get_categories()
-        player_status = await self.get_player_status()
-        playback_state = await self.get_playback_state()
+        # 1) Détecteur de changement bon marché.
+        info: dict[str, Any] = {}
+        try:
+            info = await self.get_info()
+        except NoopyTVAPIError:
+            info = {}
+        generation = info.get("channels_generation")
+        total_ch = info.get("total_channels")
+        total_cat = info.get("total_categories")
 
-        channels_data: dict[str, dict[str, Any]] = {}
-        for channel in channels:
-            channels_data[channel.id] = {
-                "id": channel.id,
-                "name": channel.name,
-                "logo_url": channel.logo_url,
-                "stream_url": channel.stream_url,
-                "category": channel.category,
-                "tvg_id": channel.tvg_id,
-                "stream_id": channel.stream_id,
-                "has_catchup": channel.has_catchup,
-                "catchup_days": channel.catchup_days,
-            }
+        # 2) Player + playback_state : toujours, en parallèle (temps réel, petits payloads).
+        player_status, playback_state = await asyncio.gather(
+            self.get_player_status(),
+            self.get_playback_state(),
+        )
 
-            if channel.current_program:
-                channels_data[channel.id].update({
-                    "current_program": channel.current_program.get("title"),
-                    "current_program_start": channel.current_program.get("start"),
-                    "current_program_end": channel.current_program.get("end"),
-                    "current_program_description": channel.current_program.get("description"),
-                    "current_program_icon": channel.current_program.get("icon_url"),
-                    "progress_percent": channel.current_program.get("progress_percent", 0),
-                })
+        # 3) Décide si la liste lourde doit être re-fetchée.
+        if generation is not None:
+            channels_changed = generation != self._last_generation
+        else:
+            # Serveur ancien sans génération → repli sur les compteurs.
+            channels_changed = (
+                total_ch != self._last_total_channels
+                or total_cat != self._last_total_categories
+            )
+        if not self._cached_channels_data:
+            channels_changed = True  # 1er tick / cache vide
 
-        return {
-            "channels": channels_data,
-            "categories": {
+        if channels_changed:
+            channels = await self.get_channels()
+            categories = await self.get_categories(player_data=player_status)
+
+            channels_data: dict[str, dict[str, Any]] = {}
+            for channel in channels:
+                cd: dict[str, Any] = {
+                    "id": channel.id,
+                    "name": channel.name,
+                    "logo_url": channel.logo_url,
+                    "stream_url": channel.stream_url,
+                    "category": channel.category,
+                    "tvg_id": channel.tvg_id,
+                    "stream_id": channel.stream_id,
+                    "has_catchup": channel.has_catchup,
+                    "catchup_days": channel.catchup_days,
+                    "order": channel.order,
+                }
+                if channel.current_program:
+                    cd.update({
+                        "current_program": channel.current_program.get("title"),
+                        "current_program_start": channel.current_program.get("start"),
+                        "current_program_end": channel.current_program.get("end"),
+                        "current_program_description": channel.current_program.get("description"),
+                        "current_program_icon": channel.current_program.get("icon_url"),
+                        "progress_percent": channel.current_program.get("progress_percent", 0),
+                    })
+                channels_data[channel.id] = cd
+
+            self._cached_channels_data = channels_data
+            self._cached_categories_data = {
                 cat.name: {"name": cat.name, "channels_count": cat.channels_count}
                 for cat in categories
-            },
-            "total_channels": len(channels),
-            "total_categories": len(categories),
+            }
+            self._last_generation = generation
+            self._last_total_channels = total_ch if total_ch is not None else len(channels)
+            self._last_total_categories = total_cat if total_cat is not None else len(categories)
+            _LOGGER.debug("OneTV: liste chaînes re-fetchée (%d chaînes)", len(channels_data))
+
+        return {
+            "channels": self._cached_channels_data,
+            "categories": self._cached_categories_data,
+            "total_channels": len(self._cached_channels_data),
+            "total_categories": len(self._cached_categories_data),
             "player": player_status,
             "playback_state": playback_state,
         }

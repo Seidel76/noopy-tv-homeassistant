@@ -125,6 +125,12 @@ class _ChannelSelectBase(CoordinatorEntity, SelectEntity):
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_{unique_suffix}"
         self._channel_map: dict[str, str] = {}
+        # ⚡️ FIX HA (2026-06-20) — cache de `.options` : HA lit la propriété à chaque écriture
+        # d'état (chaque tick) pour CHAQUE select → sans cache c'est un tri O(chaînes) répété
+        # par select et par tick. La liste channels ne change que rarement (re-fetch conditionnel
+        # côté coordinator → même objet dict entre ticks) → on garde une réf et compare par `is`.
+        self._options_cache: list[str] | None = None
+        self._options_cache_src: object | None = None
 
     @property
     def device_info(self) -> dict[str, Any]:
@@ -156,18 +162,27 @@ class _ChannelSelectBase(CoordinatorEntity, SelectEntity):
         return list(channels.items())
 
     def _build_options(self) -> list[str]:
+        # Cache: réutilise le résultat tant que l'objet dict `channels` est le même (identité).
+        data = self.coordinator.data
+        channels = (data.get("channels") if data else None) or {}
+        if self._options_cache is not None and channels is self._options_cache_src:
+            return self._options_cache
+
         items = self._filter_channels()
         sorted_items = sorted(items, key=lambda x: x[1].get("order", 999999))
-        self._channel_map = {}
+        channel_map: dict[str, str] = {}
         names: list[str] = []
         for channel_id, ch_data in sorted_items:
             name = ch_data.get("name", "")
             if name:
                 # Évite les doublons (au pire suffixe l'ID court)
-                if name in self._channel_map:
+                if name in channel_map:
                     name = f"{name} ({channel_id[:6]})"
-                self._channel_map[name] = channel_id
+                channel_map[name] = channel_id
                 names.append(name)
+        self._channel_map = channel_map
+        self._options_cache = names
+        self._options_cache_src = channels
         return names
 
     @property

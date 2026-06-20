@@ -8,12 +8,13 @@ CONF_API_KEY = "api_key"
 CONF_SCAN_INTERVAL = "scan_interval"
 
 DEFAULT_PORT = 8765
-# ⚡️ v3.0.0 : 30s par défaut (vs 10s en v2.x). Réduit la charge sur l'app tvOS/Android TV
-# qui poll moins souvent. La chaîne en cours et le programme sont quand même mis à jour
-# en quasi temps réel grâce au cache push-based côté serveur.
-DEFAULT_SCAN_INTERVAL = timedelta(seconds=30)
-DEFAULT_SCAN_INTERVAL_SECONDS = 30
-MIN_SCAN_INTERVAL_SECONDS = 10
+# ⚡️ v3.2.0 (2026-06-20) : 10s par défaut. Depuis le re-fetch CONDITIONNEL de la liste lourde
+# (api.py refresh_data : la liste 60k chaînes n'est re-téléchargée que si `channels_generation`
+# change), un tick ne coûte plus que /info + /player + /player_state (petits, en parallèle).
+# 10s rend la chaîne en cours quasi temps réel SANS marteler le catalogue.
+DEFAULT_SCAN_INTERVAL = timedelta(seconds=10)
+DEFAULT_SCAN_INTERVAL_SECONDS = 10
+MIN_SCAN_INTERVAL_SECONDS = 5
 MAX_SCAN_INTERVAL_SECONDS = 300
 
 ZEROCONF_SERVICE_TYPE = "_noopytv._tcp.local."
