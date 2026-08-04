@@ -96,4 +96,4 @@ ATTR_CURRENT_CHANNEL_ID = "current_channel_id"
 ATTR_CURRENT_CHANNEL_LOGO = "current_channel_logo"
 ATTR_AVAILABLE_CHANNELS = "available_channels"
 
-PLATFORMS = ["sensor", "select", "media_player", "binary_sensor", "button", "image"]
+PLATFORMS = ["sensor", "select", "media_player", "binary_sensor", "button"]

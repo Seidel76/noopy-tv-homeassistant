@@ -27,8 +27,8 @@
   the app is closed
 - **Live EPG** — Current program with a progress sensor (percentage elapsed, title, start,
   end, remaining minutes, description)
-- **Artwork entity** — `image.*` serving the current channel logo (or the movie/episode
-  poster) through Home Assistant, so dashboards and notifications can use it directly
+- **Channel artwork** — the player serves the current channel logo (or the movie/episode
+  poster) squared, so Home Assistant's circular thumbnails no longer crop it
 - **Track selection** — Audio and subtitle track selectors for the current content
 - **Buttons** — Return to live, refresh
 - **Diagnostics** — Downloadable from the integration page, with the API key redacted

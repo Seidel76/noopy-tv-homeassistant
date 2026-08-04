@@ -105,15 +105,22 @@ def _pad_to_square(raw: bytes) -> bytes | None:
 
 @callback
 def shared_artwork_picture(hass: HomeAssistant, entry: ConfigEntry) -> str | None:
-    """URL de l'entité `image` de cette intégration, déjà mise au carré.
+    """URL du visuel servi par le `media_player`, déjà mis au carré.
 
     Les capteurs et sélecteurs ne peuvent pas transformer une image : leur `entity_picture`
-    n'est qu'une URL. On les fait donc pointer vers l'entité `image`, qui sert le même
-    contenu (le visuel en cours) mais carré. Repli sur l'URL brute si l'entité n'est pas
-    encore là — au pire le logo est recadré, comme avant.
+    n'est qu'une URL. On les fait donc pointer vers le lecteur, qui sert le même contenu
+    (le visuel en cours) via `async_get_media_image()`, carré.
+
+    ⚠️ v4.2.0 — c'était une entité `image` dédiée. Elle apparaissait dans la liste des
+    entités, y compris masquée (« Logo de la chaîne (Cachée) »), pour un doublon de ce que
+    le lecteur affiche déjà. Le lecteur, lui, est l'entité principale : aucune entité en
+    plus à masquer.
+
+    Repli sur l'URL brute si le lecteur n'expose pas encore d'image — au pire le logo est
+    recadré, comme avant la v4.1.3.
     """
     registry = er.async_get(hass)
-    entity_id = registry.async_get_entity_id("image", DOMAIN, f"{entry.entry_id}_artwork")
+    entity_id = registry.async_get_entity_id("media_player", DOMAIN, f"{entry.entry_id}_media_player")
     if entity_id is None:
         return None
     state = hass.states.get(entity_id)

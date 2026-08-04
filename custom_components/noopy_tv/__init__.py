@@ -187,13 +187,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         DOMAIN, SERVICE_SEND_COMMAND, handle_send_command, schema=SEND_COMMAND_SCHEMA
     )
 
-    _async_hide_artwork_entity_once(hass, entry)
+    _async_remove_legacy_artwork_entity(hass, entry)
     _async_check_apple_tv_pairing(hass, entry)
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     _LOGGER.info(
-        "OneTV v4.1.5 configuré: %s:%d (scan=%ss)",
+        "OneTV v4.2.0 configuré: %s:%d (scan=%ss)",
         entry.data[CONF_HOST],
         entry.data.get(CONF_PORT, DEFAULT_PORT),
         int(scan_interval.total_seconds()),
@@ -202,31 +202,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-def _async_hide_artwork_entity_once(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Masque l'entité `image` — une seule fois, sans jamais écraser un choix utilisateur.
+def _async_remove_legacy_artwork_entity(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Supprime l'entité `image` des v4.1.x.
 
-    ⚠️ `entity_registry_visible_default = False` ne s'applique qu'à la PREMIÈRE inscription
-    d'une entité au registre. L'entité existant déjà chez ceux qui ont installé la v4.1.x,
-    le réglage seul ne les aurait jamais masquées.
+    ⚠️ La masquer ne suffisait pas : Home Assistant continue de la lister, suffixée
+    « (Cachée) », dans la carte Capteurs — pour un doublon du visuel que le lecteur affiche
+    déjà. Le `media_player` sert désormais lui-même l'image mise au carré, cette entité
+    dédiée n'a plus de raison d'être.
 
-    Le marqueur en `entry.data` garantit que ça ne se produit qu'une fois : si l'utilisateur
-    la ré-affiche ensuite, elle le reste.
+    Sans ce nettoyage, elle resterait au registre en `unavailable` après la mise à jour.
     """
-    marker = "artwork_hidden_migrated"
-    if entry.data.get(marker):
-        return
-
     registry = er.async_get(hass)
     entity_id = registry.async_get_entity_id("image", DOMAIN, f"{entry.entry_id}_artwork")
-    if entity_id is None:
-        return  # pas encore créée : on retentera au prochain démarrage
-
-    existing = registry.async_get(entity_id)
-    if existing is not None and existing.hidden_by is None:
-        registry.async_update_entity(entity_id, hidden_by=er.RegistryEntryHider.INTEGRATION)
-        _LOGGER.debug("OneTV : entité %s masquée (visuel déjà porté par les autres entités)", entity_id)
-
-    hass.config_entries.async_update_entry(entry, data={**entry.data, marker: True})
+    if entity_id is not None:
+        registry.async_remove(entity_id)
+        _LOGGER.info("OneTV : entité %s supprimée (le lecteur porte désormais le visuel)", entity_id)
 
 
 def _async_check_apple_tv_pairing(hass: HomeAssistant, entry: ConfigEntry) -> None:
