@@ -108,8 +108,17 @@ class NoopyTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Erreur inattendue")
                 errors["base"] = "unknown"
             else:
-                await self.async_set_unique_id(f"noopytv_{user_input[CONF_HOST]}_{user_input.get(CONF_PORT, DEFAULT_PORT)}")
+                await self.async_set_unique_id(
+                    f"noopytv_{user_input[CONF_HOST]}_{user_input.get(CONF_PORT, DEFAULT_PORT)}"
+                )
                 self._abort_if_unique_id_configured()
+                # L'ajout manuel utilise host+port ; la découverte utilise le deviceId.
+                # Sans ce garde-fou, ajouter à la main un appareil déjà découvert (ou
+                # l'inverse) crée un doublon.
+                self._async_abort_entries_match({
+                    CONF_HOST: user_input[CONF_HOST],
+                    CONF_PORT: user_input.get(CONF_PORT, DEFAULT_PORT),
+                })
                 
                 return self.async_create_entry(title=info["title"], data=user_input)
         
@@ -146,7 +155,8 @@ class NoopyTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # créait une entrée EN DOUBLE et l'ancienne restait morte. On préfère donc le
         # `deviceId` annoncé dans le TXT Bonjour (app ≥ 2026-08), avec repli sur host+port
         # pour les versions antérieures.
-        await self.async_set_unique_id(self._unique_id_for_discovery())
+        unique_id = self._unique_id_for_discovery()
+        await self.async_set_unique_id(unique_id)
         # `updates=` : si l'appareil est déjà connu, on met à jour son adresse au lieu
         # d'abandonner — c'est ce qui répare une IP qui a changé.
         self._abort_if_unique_id_configured(
@@ -155,6 +165,20 @@ class NoopyTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_PORT: self._discovered_port,
                 **({CONF_API_KEY: self._discovered_api_key} if self._discovered_api_key else {}),
             }
+        )
+
+        # ⚠️ v4.2.1 — MIGRATION. La v4.1.0 est passée de `noopytv_<host>_<port>` à
+        # `noopytv_<deviceId>` : une entrée créée avant, ou ajoutée à la main (l'étape
+        # manuelle utilise toujours host+port), ne correspond plus au nouvel identifiant.
+        # Sans ce rattrapage, la découverte croit l'appareil inconnu et crée une SECONDE
+        # entrée — 16 entités en double, suffixées `_2`, et les options (Apple TV associée)
+        # perdues puisqu'elles vivent sur l'ancienne entrée.
+        if self._async_adopt_legacy_entry(unique_id):
+            return self.async_abort(reason="already_configured")
+
+        # Garde-fou : jamais deux entrées pour le même hôte, quel que soit l'identifiant.
+        self._async_abort_entries_match(
+            {CONF_HOST: self._discovered_host, CONF_PORT: self._discovered_port}
         )
 
         try:
@@ -182,6 +206,40 @@ class NoopyTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return await self.async_step_zeroconf_confirm()
     
+    def _async_adopt_legacy_entry(self, unique_id: str) -> bool:
+        """Rattache une entrée existante au nouvel identifiant. True si adoptée.
+
+        On reconnaît l'entrée à son hôte et son port : c'est le seul lien commun entre les
+        deux schémas d'identifiant.
+        """
+        for entry in self._async_current_entries():
+            if entry.unique_id == unique_id:
+                return False  # déjà au bon format, `_abort_if_unique_id_configured` a géré
+            if entry.data.get(CONF_HOST) != self._discovered_host:
+                continue
+            if entry.data.get(CONF_PORT, DEFAULT_PORT) != self._discovered_port:
+                continue
+
+            data = {**entry.data, CONF_SUPPORTS_SSE: self._discovered_supports_sse}
+            if self._discovered_api_key:
+                data[CONF_API_KEY] = self._discovered_api_key
+            if self._discovered_device_id:
+                data[CONF_DEVICE_ID] = self._discovered_device_id
+            if self._discovered_model:
+                data[CONF_DEVICE_MODEL] = self._discovered_model
+            if self._discovered_manufacturer:
+                data[CONF_DEVICE_MANUFACTURER] = self._discovered_manufacturer
+
+            _LOGGER.info(
+                "OneTV : entrée %s adoptée sous le nouvel identifiant %s (était %s)",
+                entry.entry_id, unique_id, entry.unique_id,
+            )
+            self.hass.config_entries.async_update_entry(
+                entry, unique_id=unique_id, data=data
+            )
+            return True
+        return False
+
     def _unique_id_for_discovery(self) -> str:
         """`deviceId` si l'app l'annonce, sinon repli host+port (comportement ≤ v4.0.x)."""
         if self._discovered_device_id:
