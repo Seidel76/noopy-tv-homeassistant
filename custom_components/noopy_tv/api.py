@@ -329,7 +329,11 @@ class NoopyTVAPI:
             return []
         return data.get("categories", []) or []
 
-    async def listen_events(self, on_event: Callable[[str, dict[str, Any]], None]) -> None:
+    async def listen_events(
+        self,
+        on_event: Callable[[str, dict[str, Any]], None],
+        on_connected: Callable[[], None] | None = None,
+    ) -> None:
         """Consomme le flux SSE `/api/v1/events/stream` jusqu'à déconnexion.
 
         Le serveur (tvOS uniquement) émet `event: <kind>\\ndata: <json>\\n\\n` avec
@@ -356,6 +360,8 @@ class NoopyTVAPI:
                     raise NoopyTVAPIError(f"SSE erreur HTTP {response.status}")
 
                 _LOGGER.debug("OneTV: flux SSE connecté (%s)", url)
+                if on_connected is not None:
+                    on_connected()
                 event_name = "message"
                 data_lines: list[str] = []
 

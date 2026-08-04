@@ -162,14 +162,18 @@ class NoopyTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> config_entries.OptionsFlow:
-        return NoopyTVOptionsFlowHandler(config_entry)
+        return NoopyTVOptionsFlowHandler()
 
 
 class NoopyTVOptionsFlowHandler(config_entries.OptionsFlow):
-    
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self.config_entry = config_entry
-    
+    """Options de l'intégration.
+
+    ⚠️ Ne PAS définir `self.config_entry` dans un `__init__` : depuis HA 2024.11 c'est une
+    property en lecture seule renseignée par le framework, et l'affecter lève
+    `AttributeError: property 'config_entry' ... has no setter` — le bouton « Configurer »
+    renvoyait alors une erreur 500 (bug présent depuis la v3.x).
+    """
+
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)

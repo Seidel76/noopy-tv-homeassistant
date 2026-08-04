@@ -42,6 +42,7 @@ from .const import (
     DEFAULT_APPLE_TV_SOURCE,
     DOMAIN,
 )
+from .naming import is_channel_name_valid
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -147,13 +148,15 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             active = self._player().get("is_active", False)
         if not active:
             return MediaPlayerState.IDLE
-        if ps.get("isBuffering"):
-            return MediaPlayerState.BUFFERING
         if ps.get("isPaused"):
             return MediaPlayerState.PAUSED
-        if ps.get("isPlaying"):
-            return MediaPlayerState.PLAYING
-        return MediaPlayerState.ON
+        if ps.get("isBuffering"):
+            return MediaPlayerState.BUFFERING
+        # ⚠️ En live, l'app laisse régulièrement `isPlaying` à false entre deux transitions
+        # alors que le flux tourne (mesuré : lecteur actif, ni pause ni buffering, tous les
+        # drapeaux à false). Renvoyer ON ferait afficher un « Allumé » vague dans l'UI :
+        # lecteur actif et non mis en pause = en lecture.
+        return MediaPlayerState.PLAYING
 
     @property
     def supported_features(self) -> MediaPlayerEntityFeature:
@@ -242,7 +245,13 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
 
     @property
     def media_duration(self) -> int | None:
-        duration = self._state_payload().get("duration")
+        ps = self._state_payload()
+        # ⚠️ En live, `duration` renvoie la profondeur du tampon timeshift (souvent quelques
+        # secondes), PAS la durée d'un contenu : l'exposer afficherait une barre de
+        # progression de 12 s sur une chaîne TV. Le live n'a pas de durée.
+        if ps.get("isLive"):
+            return None
+        duration = ps.get("duration")
         if isinstance(duration, (int, float)) and duration > 0:
             return int(duration)
         return None
@@ -311,7 +320,13 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
 
     @property
     def source_list(self) -> list[str]:
-        names = {ch.get("name") for ch in self._channels().values() if ch.get("name")}
+        # Les playlists M3U contiennent des lignes décoratives qui ne sont pas des chaînes
+        # (« ---●★| MANGA |★●--- ») : elles pollueraient la liste déroulante (règle 12).
+        names = {
+            ch["name"]
+            for ch in self._channels().values()
+            if ch.get("name") and is_channel_name_valid(ch["name"])
+        }
         return sorted(names)
 
     def _resolve_channel_id(self, wanted: str) -> str | None:
@@ -560,7 +575,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                 ),
             )
             for channel_id, channel in self._channels().items()
-            if channel.get("category") == category
+            if channel.get("category") == category and is_channel_name_valid(channel.get("name"))
         ]
         children.sort(key=lambda item: item.title)
         return BrowseMedia(
