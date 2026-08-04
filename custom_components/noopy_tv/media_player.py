@@ -44,6 +44,7 @@ from .const import (
     DOMAIN,
 )
 from .device import build_device_info
+from .images import proxy_image_url
 from .naming import is_channel_name_valid
 
 _LOGGER = logging.getLogger(__name__)
@@ -270,10 +271,8 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         return self._last_position_updated
 
     def _proxy_image_url(self, raw_url: str, size: int = 400) -> str:
-        """Passe l'image par le proxy de l'app : HA n'a pas forcément accès au CDN source."""
-        host = self._entry.data.get("host", "")
-        port = self._entry.data.get("port", 8765)
-        return f"http://{host}:{port}/api/v1/proxy/image?url={quote(raw_url, safe='')}&size={size}"
+        """Passe l'image par le proxy AUTHENTIFIÉ de l'app (cf. images.proxy_image_url)."""
+        return proxy_image_url(self._entry, raw_url, size)
 
     @property
     def media_image_url(self) -> str | None:

@@ -30,6 +30,7 @@ from .const import (
     DOMAIN,
 )
 from .device import build_device_info
+from .images import proxy_image_url
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -153,10 +154,7 @@ class _ChannelSelectBase(CoordinatorEntity, SelectEntity):
         return build_device_info(self._entry, getattr(self._api, "info", None))
 
     def _proxy_image_url(self, raw_url: str, size: int = 48) -> str:
-        host = self._entry.data.get("host", "")
-        port = self._entry.data.get("port", 8765)
-        encoded = quote(raw_url, safe="")
-        return f"http://{host}:{port}/api/v1/proxy/image?url={encoded}&size={size}"
+        return proxy_image_url(self._entry, raw_url, size)
 
     def _current_channel(self) -> dict[str, Any] | None:
         if not self.coordinator.data:
