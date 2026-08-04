@@ -24,6 +24,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 from .device import build_device_info
+from .images import proxy_image_url
 
 
 async def async_setup_entry(
@@ -65,9 +66,7 @@ class NoopyTVArtworkImage(CoordinatorEntity, ImageEntity):
         return self.coordinator.data.get("playback_state", {}) or {}
 
     def _proxy(self, raw_url: str, size: int) -> str:
-        host = self._entry.data.get("host", "")
-        port = self._entry.data.get("port", 8765)
-        return f"http://{host}:{port}/api/v1/proxy/image?url={quote(raw_url, safe='')}&size={size}"
+        return proxy_image_url(self._entry, raw_url, size)
 
     def _source_url(self) -> str | None:
         state = self._state_payload()
