@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
+from typing import Any
+
+import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -19,13 +25,44 @@ from .const import (
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
-    SERVICE_REFRESH,
+    PLATFORMS as PLATFORM_NAMES,
     SERVICE_PLAY_CHANNEL,
+    SERVICE_PLAY_EPISODE,
+    SERVICE_PLAY_MOVIE,
+    SERVICE_REFRESH,
+    SERVICE_SEND_COMMAND,
+    SSE_FALLBACK_SCAN_INTERVAL_SECONDS,
+    SSE_RECONNECT_MAX_DELAY,
+    SSE_RECONNECT_MIN_DELAY,
+    SUPPORTED_COMMANDS,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.SELECT]
+PLATFORMS: list[Platform] = [Platform(name) for name in PLATFORM_NAMES]
+
+PLAY_MOVIE_SCHEMA = vol.Schema(
+    {
+        vol.Required("movie_id"): cv.string,
+        vol.Optional("resume_position"): vol.Coerce(float),
+    }
+)
+
+PLAY_EPISODE_SCHEMA = vol.Schema(
+    {
+        vol.Required("series_id"): cv.string,
+        vol.Required("season"): vol.Coerce(int),
+        vol.Required("episode"): vol.Coerce(int),
+        vol.Optional("resume_position"): vol.Coerce(float),
+    }
+)
+
+SEND_COMMAND_SCHEMA = vol.Schema(
+    {
+        vol.Required("command"): vol.In(SUPPORTED_COMMANDS),
+        vol.Optional("params"): dict,
+    }
+)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -70,7 +107,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await coordinator.async_config_entry_first_refresh()
 
-    hass.data[DOMAIN][entry.entry_id] = {"api": api, "coordinator": coordinator}
+    # ⚡️ v4.0.0 — écoute SSE : le serveur tvOS pousse un event à chaque zap (<50 ms).
+    # Tant que le flux tient, le polling retombe à un simple filet de sécurité.
+    sse = NoopyTVEventListener(hass, api, coordinator, poll_interval=scan_interval)
+    sse.start()
+
+    hass.data[DOMAIN][entry.entry_id] = {"api": api, "coordinator": coordinator, "sse": sse}
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -93,13 +135,53 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         else:
             _LOGGER.error("Échec du changement de chaîne")
 
+    async def _send_command(command: str, params: dict[str, Any] | None = None) -> None:
+        try:
+            result = await api.send_command(command, params)
+        except NoopyTVAPIError as err:
+            raise HomeAssistantError(f"OneTV: commande '{command}' échouée — {err}") from err
+        if not result.get("success", False):
+            raise HomeAssistantError(
+                f"OneTV a refusé la commande '{command}': "
+                f"{result.get('error') or result.get('message')}"
+            )
+        await coordinator.async_request_refresh()
+
+    async def handle_play_movie(call: ServiceCall) -> None:
+        params: dict[str, Any] = {"movieId": call.data["movie_id"]}
+        if "resume_position" in call.data:
+            params["resumePosition"] = float(call.data["resume_position"])
+        await _send_command("playMovie", params)
+
+    async def handle_play_episode(call: ServiceCall) -> None:
+        params: dict[str, Any] = {
+            "seriesId": call.data["series_id"],
+            "seasonNumber": int(call.data["season"]),
+            "episodeNumber": int(call.data["episode"]),
+        }
+        if "resume_position" in call.data:
+            params["resumePosition"] = float(call.data["resume_position"])
+        await _send_command("playEpisode", params)
+
+    async def handle_send_command(call: ServiceCall) -> None:
+        await _send_command(call.data["command"], call.data.get("params"))
+
     hass.services.async_register(DOMAIN, SERVICE_REFRESH, handle_refresh)
     hass.services.async_register(DOMAIN, SERVICE_PLAY_CHANNEL, handle_play_channel)
+    hass.services.async_register(
+        DOMAIN, SERVICE_PLAY_MOVIE, handle_play_movie, schema=PLAY_MOVIE_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_PLAY_EPISODE, handle_play_episode, schema=PLAY_EPISODE_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_SEND_COMMAND, handle_send_command, schema=SEND_COMMAND_SCHEMA
+    )
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     _LOGGER.info(
-        "OneTV v3.2.0 configuré: %s:%d (scan=%ss)",
+        "OneTV v4.0.0 configuré: %s:%d (scan=%ss)",
         entry.data[CONF_HOST],
         entry.data.get(CONF_PORT, DEFAULT_PORT),
         int(scan_interval.total_seconds()),
@@ -142,14 +224,114 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if unload_ok:
         data = hass.data[DOMAIN].pop(entry.entry_id)
+        sse: NoopyTVEventListener | None = data.get("sse")
+        if sse is not None:
+            await sse.stop()
         api: NoopyTVAPI = data["api"]
         await api.close()
 
         if not hass.data[DOMAIN]:
-            hass.services.async_remove(DOMAIN, SERVICE_REFRESH)
-            hass.services.async_remove(DOMAIN, SERVICE_PLAY_CHANNEL)
+            for service in (
+                SERVICE_REFRESH,
+                SERVICE_PLAY_CHANNEL,
+                SERVICE_PLAY_MOVIE,
+                SERVICE_PLAY_EPISODE,
+                SERVICE_SEND_COMMAND,
+            ):
+                hass.services.async_remove(DOMAIN, service)
 
     return unload_ok
+
+
+class NoopyTVEventListener:
+    """Maintient le flux SSE `/api/v1/events/stream` et déclenche un refresh à chaque event.
+
+    Choix de conception : on ne PARSE PAS le payload des events pour construire l'état. Un
+    event sert uniquement de signal « quelque chose a changé, va lire l'état ». Ça évite de
+    dupliquer (et de désynchroniser) le décodage déjà fait par `/api/v1/player/state`, et le
+    coût est nul — `async_request_refresh` est débouncé avec `immediate=True`, donc le premier
+    zap déclenche un refresh instantané et une rafale est coalescée.
+
+    Le flux n'existe que sur le serveur tvOS (iOS répond 501) : dans ce cas on abandonne
+    définitivement et le polling normal reprend la main.
+    """
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        api: NoopyTVAPI,
+        coordinator: DataUpdateCoordinator,
+        poll_interval: timedelta,
+    ) -> None:
+        self._hass = hass
+        self._api = api
+        self._coordinator = coordinator
+        self._poll_interval = poll_interval
+        self._task: asyncio.Task | None = None
+        self._stopping = False
+
+    def start(self) -> None:
+        if self._task is None:
+            self._task = self._hass.async_create_background_task(
+                self._run(), name=f"{DOMAIN}_sse"
+            )
+
+    async def stop(self) -> None:
+        self._stopping = True
+        if self._task is not None:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
+
+    def _set_poll_interval(self, interval: timedelta) -> None:
+        if self._coordinator.update_interval == interval:
+            return
+        try:
+            self._coordinator.update_interval = interval
+        except Exception:  # pragma: no cover - dépend de la version de HA
+            _LOGGER.debug("OneTV: impossible d'ajuster l'intervalle de polling", exc_info=True)
+
+    @callback
+    def _on_event(self, event_name: str, _payload: dict[str, Any]) -> None:
+        if event_name in ("heartbeat", "message"):
+            return
+        if event_name == "snapshot":
+            # Le serveur envoie `snapshot` dès la connexion : c'est notre signal « SSE établi ».
+            # À partir de là le polling n'est plus qu'un filet de sécurité.
+            self._set_poll_interval(timedelta(seconds=SSE_FALLBACK_SCAN_INTERVAL_SECONDS))
+        _LOGGER.debug("OneTV SSE: event %s → refresh", event_name)
+        self._hass.async_create_task(self._coordinator.async_request_refresh())
+
+    async def _run(self) -> None:
+        delay = SSE_RECONNECT_MIN_DELAY
+        while not self._stopping:
+            try:
+                await self._api.listen_events(self._on_event)
+                # Retour normal = flux fermé proprement par le serveur (app quittée).
+                delay = SSE_RECONNECT_MIN_DELAY
+            except NoopyTVAPIError as err:
+                # 501/404 = serveur sans SSE (iOS, ou app trop ancienne) → inutile d'insister.
+                if "501" in str(err) or "non disponible" in str(err) or "non supporté" in str(err):
+                    _LOGGER.info("OneTV: pas de flux SSE (%s) — polling conservé", err)
+                    self._set_poll_interval(self._poll_interval)
+                    return
+                _LOGGER.debug("OneTV SSE: %s", err)
+            except NoopyTVConnectionError as err:
+                _LOGGER.debug("OneTV SSE déconnecté: %s", err)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # pragma: no cover - filet de sécurité
+                _LOGGER.exception("OneTV SSE: erreur inattendue")
+
+            # Flux perdu → l'app est peut-être fermée : on repasse en polling nominal.
+            self._set_poll_interval(self._poll_interval)
+            if self._stopping:
+                return
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, SSE_RECONNECT_MAX_DELAY)
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

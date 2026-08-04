@@ -9,10 +9,22 @@ from homeassistant import config_entries
 from homeassistant.components import zeroconf
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import NoopyTVAPI, NoopyTVAPIError, NoopyTVConnectionError
-from .const import CONF_API_KEY, CONF_HOST, CONF_PORT, CONF_SCAN_INTERVAL, DEFAULT_PORT, DEFAULT_SCAN_INTERVAL_SECONDS, DOMAIN
+from .const import (
+    CONF_API_KEY,
+    CONF_APPLE_TV_ENTITY,
+    CONF_APPLE_TV_SOURCE,
+    CONF_HOST,
+    CONF_PORT,
+    CONF_SCAN_INTERVAL,
+    DEFAULT_APPLE_TV_SOURCE,
+    DEFAULT_PORT,
+    DEFAULT_SCAN_INTERVAL_SECONDS,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -163,10 +175,19 @@ class NoopyTVOptionsFlowHandler(config_entries.OptionsFlow):
             return self.async_create_entry(title="", data=user_input)
         
         current_interval = self.config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_SECONDS)
-        
+        current_atv = self.config_entry.options.get(CONF_APPLE_TV_ENTITY, "")
+        current_source = self.config_entry.options.get(CONF_APPLE_TV_SOURCE, DEFAULT_APPLE_TV_SOURCE)
+
+        # ⚡️ v4.0.0 — l'entité Apple TV est le SEUL moyen de (re)lancer l'app : son serveur
+        # HTTP ne tourne que quand elle est déjà ouverte. Sans ça, `media_player.turn_on`
+        # échoue avec un message explicite.
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
                 vol.Optional(CONF_SCAN_INTERVAL, default=current_interval): vol.All(vol.Coerce(int), vol.Range(min=5, max=300)),
+                vol.Optional(CONF_APPLE_TV_ENTITY, default=current_atv): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="media_player")
+                ),
+                vol.Optional(CONF_APPLE_TV_SOURCE, default=current_source): str,
             }),
         )

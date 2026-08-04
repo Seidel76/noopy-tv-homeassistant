@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import uuid
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -266,6 +269,126 @@ class NoopyTVAPI:
         except aiohttp.ClientError as err:
             _LOGGER.error("Erreur lors du changement de chaîne: %s", err)
             return False
+
+    async def send_command(self, command: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Envoie une commande au lecteur via `POST /api/v1/player/command`.
+
+        Le serveur décode un `RemoteCommand` Swift : `command` (String), `params`
+        ([String: RemoteValue] — scalaires JSON nus) et `requestId` (String **requis**,
+        non optionnel côté Swift → toujours l'envoyer, sinon 400 Invalid command JSON).
+
+        Retourne le dict de réponse (`success`, `message`, `error`, `data`). Lève
+        `NoopyTVAPIError` si la requête elle-même échoue.
+        """
+        session = await self._ensure_session()
+        url = f"{self._base_url}/api/v1/player/command"
+        headers = {"Content-Type": "application/json", **self._auth_headers()}
+        payload: dict[str, Any] = {
+            "command": command,
+            "requestId": uuid.uuid4().hex,
+        }
+        if params:
+            payload["params"] = params
+
+        req_timeout = aiohttp.ClientTimeout(connect=3, total=10)
+        try:
+            async with session.post(url, json=payload, headers=headers, timeout=req_timeout) as response:
+                if response.status == 404:
+                    # Ancienne version de l'app : l'endpoint commandes n'existe pas encore.
+                    raise NoopyTVAPIError(
+                        "Commandes non supportées par cette version de OneTV (mettez l'app à jour)"
+                    )
+                if response.status != 200:
+                    raise NoopyTVAPIError(f"Erreur HTTP {response.status} sur send_command({command})")
+                return await response.json()
+        except aiohttp.ClientConnectorError as err:
+            raise NoopyTVConnectionError(f"Impossible de se connecter à OneTV: {err}") from err
+        except aiohttp.ClientError as err:
+            raise NoopyTVAPIError(f"Erreur de connexion: {err}") from err
+
+    async def get_movies(self) -> list[dict[str, Any]]:
+        """Catalogue films groupé par catégorie (`/api/v1/movies`).
+
+        Shape serveur : `{totalCategories, categories: [{categoryId, categoryName,
+        moviesCount, movies: [{id, name, posterURL, tmdbId, year, rating}]}]}`.
+        ⚠️ Le serveur plafonne à 100 films par catégorie.
+        """
+        try:
+            data = await self._request("/api/v1/movies", timeout=20)
+        except NoopyTVAPIError as err:
+            _LOGGER.debug("get_movies failed: %s", err)
+            return []
+        return data.get("categories", []) or []
+
+    async def get_series(self) -> list[dict[str, Any]]:
+        """Catalogue séries groupé par catégorie (`/api/v1/series`) — même shape, clé `series`."""
+        try:
+            data = await self._request("/api/v1/series", timeout=20)
+        except NoopyTVAPIError as err:
+            _LOGGER.debug("get_series failed: %s", err)
+            return []
+        return data.get("categories", []) or []
+
+    async def listen_events(self, on_event: Callable[[str, dict[str, Any]], None]) -> None:
+        """Consomme le flux SSE `/api/v1/events/stream` jusqu'à déconnexion.
+
+        Le serveur (tvOS uniquement) émet `event: <kind>\\ndata: <json>\\n\\n` avec
+        kind ∈ snapshot | channel.start | channel.change | channel.stop | sport.context,
+        plus un commentaire `: ping` toutes les 10 s. Sur iOS le serveur répond 501.
+
+        Lève `NoopyTVConnectionError` / `NoopyTVAPIError` — l'appelant gère la reconnexion.
+        """
+        session = await self._ensure_session()
+        url = f"{self._base_url}/api/v1/events/stream"
+        headers = {"Accept": "text/event-stream", **self._auth_headers()}
+        # Flux long : pas de timeout total, seulement la connexion. `sock_read` sert de
+        # détecteur de mort du lien — le heartbeat serveur tombe toutes les 10 s, donc
+        # 45 s sans le moindre octet = lien perdu.
+        stream_timeout = aiohttp.ClientTimeout(total=None, connect=5, sock_read=45)
+
+        try:
+            async with session.get(url, headers=headers, timeout=stream_timeout) as response:
+                if response.status == 501:
+                    raise NoopyTVAPIError("SSE non disponible (serveur iOS, tvOS uniquement)")
+                if response.status == 404:
+                    raise NoopyTVAPIError("SSE non supporté par cette version de OneTV")
+                if response.status != 200:
+                    raise NoopyTVAPIError(f"SSE erreur HTTP {response.status}")
+
+                _LOGGER.debug("OneTV: flux SSE connecté (%s)", url)
+                event_name = "message"
+                data_lines: list[str] = []
+
+                async for raw_line in response.content:
+                    line = raw_line.decode("utf-8", errors="ignore").rstrip("\r\n")
+
+                    if line.startswith(":"):
+                        continue  # heartbeat / commentaire
+                    if line.startswith("event:"):
+                        event_name = line[len("event:"):].strip()
+                        continue
+                    if line.startswith("data:"):
+                        data_lines.append(line[len("data:"):].strip())
+                        continue
+                    if line == "":
+                        if data_lines:
+                            payload: dict[str, Any] = {}
+                            raw = "\n".join(data_lines)
+                            try:
+                                decoded = json.loads(raw)
+                                if isinstance(decoded, dict):
+                                    payload = decoded
+                            except ValueError:
+                                _LOGGER.debug("SSE: payload non-JSON ignoré (%s)", raw[:120])
+                            on_event(event_name, payload)
+                        event_name = "message"
+                        data_lines = []
+        except asyncio.TimeoutError as err:
+            raise NoopyTVConnectionError(f"SSE timeout: {err}") from err
+        except aiohttp.ClientConnectorError as err:
+            raise NoopyTVConnectionError(f"SSE injoignable: {err}") from err
+        except aiohttp.ClientError as err:
+            raise NoopyTVAPIError(f"SSE erreur: {err}") from err
 
     async def get_channel_detail(self, channel_id: str) -> dict[str, Any] | None:
         try:

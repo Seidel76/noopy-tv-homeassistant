@@ -13,3 +13,100 @@ play_channel:
       example: "TF1"
       selector:
         text:
+
+play_movie:
+  name: Lancer un film
+  description: Lance un film du catalogue OneTV.
+  fields:
+    movie_id:
+      name: ID du film
+      description: Identifiant du film (visible dans le navigateur de médias de l'entité OneTV).
+      required: true
+      example: "12345"
+      selector:
+        text:
+    resume_position:
+      name: Reprendre à
+      description: Position de reprise en secondes. Omettre pour démarrer au début.
+      required: false
+      example: 1830
+      selector:
+        number:
+          min: 0
+          max: 86400
+          unit_of_measurement: s
+          mode: box
+
+play_episode:
+  name: Lancer un épisode
+  description: Lance un épisode de série du catalogue OneTV.
+  fields:
+    series_id:
+      name: ID de la série
+      description: Identifiant de la série (visible dans le navigateur de médias de l'entité OneTV).
+      required: true
+      example: "6789"
+      selector:
+        text:
+    season:
+      name: Saison
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: box
+    episode:
+      name: Épisode
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 0
+          max: 1000
+          mode: box
+    resume_position:
+      name: Reprendre à
+      description: Position de reprise en secondes. Omettre pour démarrer au début.
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 86400
+          unit_of_measurement: s
+          mode: box
+
+send_command:
+  name: Envoyer une commande
+  description: >-
+    Envoie une commande brute au lecteur OneTV. Le volume n'est pas disponible :
+    l'application ne l'implémente pas côté lecteur.
+  fields:
+    command:
+      name: Commande
+      required: true
+      example: seekToLive
+      selector:
+        select:
+          options:
+            - play
+            - pause
+            - togglePlayPause
+            - stop
+            - seekRelative
+            - seekAbsolute
+            - seekToLive
+            - setAudioTrack
+            - setSubtitleTrack
+            - nextChannel
+            - previousChannel
+    params:
+      name: Paramètres
+      description: >-
+        Paramètres de la commande. seekRelative attend "seconds", seekAbsolute attend
+        "position", setAudioTrack et setSubtitleTrack attendent "trackIndex".
+      required: false
+      example: '{"seconds": -30}'
+      selector:
+        object:

@@ -28,9 +28,11 @@
     "step": {
       "init": {
         "title": "Options OneTV",
-        "description": "Configurez les options de l'intégration.",
+        "description": "Configurez les options de l'intégration. L'Apple TV associée permet à Home Assistant de lancer l'application OneTV quand elle est fermée (elle ne peut pas se lancer elle-même). Le nom de l'app doit correspondre exactement à celui listé dans les sources de l'Apple TV.",
         "data": {
-          "scan_interval": "Intervalle de mise à jour (secondes)"
+          "scan_interval": "Intervalle de mise à jour (secondes)",
+          "apple_tv_entity": "Apple TV associée",
+          "apple_tv_source": "Nom de l'app sur l'Apple TV"
         }
       }
     }
@@ -54,6 +56,56 @@
         "channel_id": {
           "name": "ID de la chaîne",
           "description": "L'identifiant ou le nom de la chaîne à lire."
+        }
+      }
+    },
+    "play_movie": {
+      "name": "Lancer un film",
+      "description": "Lance un film du catalogue OneTV.",
+      "fields": {
+        "movie_id": {
+          "name": "ID du film",
+          "description": "Identifiant du film."
+        },
+        "resume_position": {
+          "name": "Reprendre à",
+          "description": "Position de reprise en secondes."
+        }
+      }
+    },
+    "play_episode": {
+      "name": "Lancer un épisode",
+      "description": "Lance un épisode de série du catalogue OneTV.",
+      "fields": {
+        "series_id": {
+          "name": "ID de la série",
+          "description": "Identifiant de la série."
+        },
+        "season": {
+          "name": "Saison",
+          "description": "Numéro de saison."
+        },
+        "episode": {
+          "name": "Épisode",
+          "description": "Numéro d'épisode."
+        },
+        "resume_position": {
+          "name": "Reprendre à",
+          "description": "Position de reprise en secondes."
+        }
+      }
+    },
+    "send_command": {
+      "name": "Envoyer une commande",
+      "description": "Envoie une commande brute au lecteur OneTV.",
+      "fields": {
+        "command": {
+          "name": "Commande",
+          "description": "Commande à envoyer."
+        },
+        "params": {
+          "name": "Paramètres",
+          "description": "Paramètres de la commande."
         }
       }
     }
