@@ -28,9 +28,11 @@
     "step": {
       "init": {
         "title": "OneTV Options",
-        "description": "Configure integration options.",
+        "description": "Configure integration options. The paired Apple TV lets Home Assistant launch the OneTV app when it is closed (it cannot launch itself). The app name must match the one listed in the Apple TV sources exactly.",
         "data": {
-          "scan_interval": "Update interval (seconds)"
+          "scan_interval": "Update interval (seconds)",
+          "apple_tv_entity": "Paired Apple TV",
+          "apple_tv_source": "App name on the Apple TV"
         }
       }
     }
@@ -54,6 +56,56 @@
         "channel_id": {
           "name": "Channel ID",
           "description": "The identifier or name of the channel to play."
+        }
+      }
+    },
+    "play_movie": {
+      "name": "Play a movie",
+      "description": "Plays a movie from the OneTV catalog.",
+      "fields": {
+        "movie_id": {
+          "name": "Movie ID",
+          "description": "Movie identifier."
+        },
+        "resume_position": {
+          "name": "Resume at",
+          "description": "Resume position in seconds."
+        }
+      }
+    },
+    "play_episode": {
+      "name": "Play an episode",
+      "description": "Plays a TV show episode from the OneTV catalog.",
+      "fields": {
+        "series_id": {
+          "name": "Series ID",
+          "description": "Series identifier."
+        },
+        "season": {
+          "name": "Season",
+          "description": "Season number."
+        },
+        "episode": {
+          "name": "Episode",
+          "description": "Episode number."
+        },
+        "resume_position": {
+          "name": "Resume at",
+          "description": "Resume position in seconds."
+        }
+      }
+    },
+    "send_command": {
+      "name": "Send a command",
+      "description": "Sends a raw command to the OneTV player.",
+      "fields": {
+        "command": {
+          "name": "Command",
+          "description": "Command to send."
+        },
+        "params": {
+          "name": "Parameters",
+          "description": "Command parameters."
         }
       }
     }

@@ -19,11 +19,48 @@
 ## Features
 
 - **Zero Configuration** — Automatic Bonjour/mDNS discovery
-- **Channel Control** — Switch channels directly from Home Assistant
+- **Media Player Entity** — Full transport controls, artwork, progress bar, source list,
+  and media browser for channels, movies and TV shows
+- **Instant Updates** — Subscribes to the app's SSE event stream, so a channel change shows
+  up in Home Assistant in well under a second (polling stays as a safety net)
+- **App Launching** — Pair your Apple TV entity and `media_player.turn_on` starts OneTV when
+  the app is closed
 - **Live EPG** — Current program, progress, and next program info
 - **Channel Logos** — Displayed via local proxy
 - **Category Selectors** — One selector per category for quick access
-- **Services** — `noopy_tv.play_channel` and `noopy_tv.refresh`
+- **Services** — `play_channel`, `play_movie`, `play_episode`, `send_command`, `refresh`
+
+### Media player controls
+
+| Control | Notes |
+| --- | --- |
+| Play / Pause / Stop | |
+| Next / Previous track | Switches to the next/previous channel |
+| Seek | Only for bounded content — live streams report no duration |
+| Source | The full channel list |
+| Browse media | Channels by category, movies, TV shows |
+| Turn on | Launches the app through the paired Apple TV |
+| Turn off | Stops playback (tvOS gives no way to quit an app remotely) |
+
+> **No volume controls.** The app's command handler does not implement `setVolume`,
+> `adjustVolume` or `toggleMute`, so the integration deliberately does not advertise them
+> rather than showing a slider that does nothing. Control volume on your TV or AV receiver.
+
+### Launching the app
+
+When OneTV is closed, its HTTP server is down and the integration cannot reach it — the app
+has no way to start itself. Pair an Apple TV so Home Assistant can launch it:
+
+**Settings → Devices & Services → OneTV → Configure → Paired Apple TV**
+
+The app name must match the entry in the Apple TV's source list exactly (default:
+`OneTV Connect`). Once paired, `media_player.turn_on` — and any `play_media` /
+`select_source` call made while the app is closed — launches it first, then plays.
+
+The `binary_sensor.*_application_accessible` entity reports whether the app is currently
+reachable. Prefer it over checking whether other entities are `unavailable`, and note that
+the Apple TV's own `app_name` attribute keeps reporting OneTV even after the app has been
+suspended.
 
 ## Requirements
 
