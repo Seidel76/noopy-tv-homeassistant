@@ -1,39 +1,37 @@
-"""Construction des URL du proxy d'images de l'app.
+"""URL des visuels (logos de chaînes, affiches VOD).
 
-⚠️ Bug corrigé en v4.1.1, présent depuis l'origine : `/api/v1/proxy/image` exige une
-authentification (seul `/api/v1/info` est public côté app) et la clé n'était jamais jointe.
-Toutes les images renvoyaient donc **401** — logos de chaînes du capteur, vignettes des
-sélecteurs, jaquette du media_player. Personne ne l'avait vu parce qu'un `entity_picture`
-cassé n'affiche rien sans lever d'erreur ; ça n'est devenu visible qu'avec l'entité `image`,
-que Home Assistant récupère côté serveur et dont l'échec remonte en clair.
+⚠️ Historique, corrigé en v4.1.2 — les images n'ont JAMAIS fonctionné dans cette
+intégration, pour deux raisons empilées :
 
-L'authentification passe par le paramètre `?token=` accepté par le serveur (le header
-`X-API-Key` n'est pas une option : c'est Home Assistant, ou le navigateur, qui va chercher
-l'URL, sans qu'on puisse lui faire ajouter un en-tête).
+1. `/api/v1/proxy/image` exige une authentification (seul `/api/v1/info` est public) et la
+   clé n'était pas jointe → **401**.
+2. Une fois la clé jointe, le proxy applique une liste blanche anti-SSRF qui ne contient
+   que `image.tmdb.org`, `thesportsdb.com` et `crests.football-data.org` → un logo de
+   chaîne IPTV est refusé par construction : **403 « URL not allowed »**.
+
+Rien de tout ça ne se voyait : une `entity_picture` cassée n'affiche simplement rien, sans
+erreur. Le problème n'a fait surface qu'avec l'entité `image`, que Home Assistant récupère
+côté serveur et dont l'échec remonte en clair.
+
+**On n'utilise donc plus le proxy.** Home Assistant va chercher l'URL d'origine lui-même :
+il a accès à Internet, les logos et affiches sont sur des hôtes publics, et ça supprime au
+passage l'exposition de la clé d'API dans les attributs d'entité — elle aurait dû être
+placée dans l'URL, visible de tout utilisateur de Home Assistant.
+
+Ce qu'on perd : le redimensionnement `size=` du proxy. Négligeable — un logo pèse quelques
+kilo-octets et Home Assistant met le résultat en cache.
 """
 
 from __future__ import annotations
 
-from urllib.parse import quote
-
 from homeassistant.config_entries import ConfigEntry
-
-from .const import CONF_API_KEY, CONF_HOST, CONF_PORT, DEFAULT_PORT
 
 
 def proxy_image_url(entry: ConfigEntry, raw_url: str, size: int = 300) -> str:
-    """URL proxifiée et AUTHENTIFIÉE d'une image distante.
+    """URL exploitable par Home Assistant pour un visuel.
 
-    Le proxy sert aussi à contourner le fait que Home Assistant n'a pas forcément accès aux
-    CDN de logos, et applique le redimensionnement.
+    `size` est conservé dans la signature (les appelants le passent) mais n'a plus d'effet
+    depuis l'abandon du proxy ; le garder évite de toucher les quatre plateformes le jour où
+    un redimensionnement redeviendrait possible.
     """
-    host = entry.data.get(CONF_HOST, "")
-    port = entry.data.get(CONF_PORT, DEFAULT_PORT)
-    url = (
-        f"http://{host}:{port}/api/v1/proxy/image"
-        f"?url={quote(raw_url, safe='')}&size={size}"
-    )
-    api_key = entry.data.get(CONF_API_KEY)
-    if api_key:
-        url += f"&token={quote(api_key, safe='')}"
-    return url
+    return raw_url
