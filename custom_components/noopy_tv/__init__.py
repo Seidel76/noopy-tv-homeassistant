@@ -181,7 +181,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     _LOGGER.info(
-        "OneTV v4.0.0 configuré: %s:%d (scan=%ss)",
+        "OneTV v4.0.1 configuré: %s:%d (scan=%ss)",
         entry.data[CONF_HOST],
         entry.data.get(CONF_PORT, DEFAULT_PORT),
         int(scan_interval.total_seconds()),
@@ -269,6 +269,7 @@ class NoopyTVEventListener:
         self._poll_interval = poll_interval
         self._task: asyncio.Task | None = None
         self._stopping = False
+        self._connected = False
 
     def start(self) -> None:
         if self._task is None:
@@ -294,14 +295,25 @@ class NoopyTVEventListener:
         except Exception:  # pragma: no cover - dépend de la version de HA
             _LOGGER.debug("OneTV: impossible d'ajuster l'intervalle de polling", exc_info=True)
 
+    @property
+    def connected(self) -> bool:
+        return self._connected
+
+    @callback
+    def _on_connected(self) -> None:
+        """Le flux est établi → le polling n'est plus qu'un filet de sécurité.
+
+        ⚠️ Ne PAS déduire la connexion de l'arrivée d'un event `snapshot` : le serveur
+        étiquette son état initial selon la situation (il envoie `channel.change` quand une
+        chaîne est déjà en cours), donc `snapshot` peut ne jamais arriver.
+        """
+        self._connected = True
+        self._set_poll_interval(timedelta(seconds=SSE_FALLBACK_SCAN_INTERVAL_SECONDS))
+
     @callback
     def _on_event(self, event_name: str, _payload: dict[str, Any]) -> None:
         if event_name in ("heartbeat", "message"):
             return
-        if event_name == "snapshot":
-            # Le serveur envoie `snapshot` dès la connexion : c'est notre signal « SSE établi ».
-            # À partir de là le polling n'est plus qu'un filet de sécurité.
-            self._set_poll_interval(timedelta(seconds=SSE_FALLBACK_SCAN_INTERVAL_SECONDS))
         _LOGGER.debug("OneTV SSE: event %s → refresh", event_name)
         self._hass.async_create_task(self._coordinator.async_request_refresh())
 
@@ -309,7 +321,7 @@ class NoopyTVEventListener:
         delay = SSE_RECONNECT_MIN_DELAY
         while not self._stopping:
             try:
-                await self._api.listen_events(self._on_event)
+                await self._api.listen_events(self._on_event, self._on_connected)
                 # Retour normal = flux fermé proprement par le serveur (app quittée).
                 delay = SSE_RECONNECT_MIN_DELAY
             except NoopyTVAPIError as err:
@@ -327,6 +339,7 @@ class NoopyTVEventListener:
                 _LOGGER.exception("OneTV SSE: erreur inattendue")
 
             # Flux perdu → l'app est peut-être fermée : on repasse en polling nominal.
+            self._connected = False
             self._set_poll_interval(self._poll_interval)
             if self._stopping:
                 return

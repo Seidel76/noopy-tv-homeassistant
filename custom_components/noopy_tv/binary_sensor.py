@@ -27,8 +27,10 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    async_add_entities([NoopyTVAvailabilityBinarySensor(coordinator, entry)])
+    data = hass.data[DOMAIN][entry.entry_id]
+    async_add_entities(
+        [NoopyTVAvailabilityBinarySensor(data["coordinator"], entry, data.get("sse"))]
+    )
 
 
 class NoopyTVAvailabilityBinarySensor(CoordinatorEntity, BinarySensorEntity):
@@ -39,9 +41,10 @@ class NoopyTVAvailabilityBinarySensor(CoordinatorEntity, BinarySensorEntity):
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry) -> None:
+    def __init__(self, coordinator, entry: ConfigEntry, sse=None) -> None:
         super().__init__(coordinator)
         self._entry = entry
+        self._sse = sse
         self._attr_unique_id = f"{entry.entry_id}_app_available"
 
     @property
@@ -61,3 +64,15 @@ class NoopyTVAvailabilityBinarySensor(CoordinatorEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool:
         return bool(self.coordinator.last_update_success)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        """Expose l'état du flux push : sans ça, savoir s'il tient exige de lire les logs."""
+        return {
+            "push_connected": bool(self._sse is not None and self._sse.connected),
+            "update_interval_seconds": int(
+                self.coordinator.update_interval.total_seconds()
+            )
+            if self.coordinator.update_interval
+            else None,
+        }
