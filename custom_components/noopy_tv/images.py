@@ -24,7 +24,20 @@ kilo-octets et Home Assistant met le résultat en cache.
 
 from __future__ import annotations
 
+import asyncio
+import io
+import logging
+
+import aiohttp
+
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+from .const import DOMAIN
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def proxy_image_url(entry: ConfigEntry, raw_url: str, size: int = 300) -> str:
@@ -35,3 +48,76 @@ def proxy_image_url(entry: ConfigEntry, raw_url: str, size: int = 300) -> str:
     un redimensionnement redeviendrait possible.
     """
     return raw_url
+
+
+async def async_square_png(hass: HomeAssistant, url: str) -> bytes | None:
+    """Télécharge un visuel et le rend CARRÉ par ajout de marges transparentes.
+
+    ⚠️ Home Assistant affiche ces vignettes en carré avec recadrage centré
+    (`object-fit: cover`). Un logo paysage y perd ses bords : mesuré sur le logo M6
+    (379×213), 44 % de la largeur disparaissait et les branches du M étaient coupées.
+
+    On ne redimensionne PAS le contenu : on l'inscrit dans un carré transparent, ce qui rend
+    le recadrage de Home Assistant sans effet et garde le logo entier et centré.
+    """
+    session = async_get_clientsession(hass)
+    try:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(connect=5, total=15)) as response:
+            if response.status != 200:
+                _LOGGER.debug("Visuel %s : HTTP %s", url, response.status)
+                return None
+            raw = await response.read()
+    except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+        _LOGGER.debug("Visuel %s injoignable : %s", url, err)
+        return None
+
+    # Pillow est fourni par Home Assistant. Traitement en exécuteur : c'est du CPU, et la
+    # boucle d'événements ne doit pas être bloquée.
+    return await hass.async_add_executor_job(_pad_to_square, raw)
+
+
+def _pad_to_square(raw: bytes) -> bytes | None:
+    try:
+        from PIL import Image
+    except ImportError:  # pragma: no cover - Pillow est une dépendance de HA
+        return raw
+
+    try:
+        image = Image.open(io.BytesIO(raw)).convert("RGBA")
+    except Exception:  # noqa: BLE001 - une image illisible ne doit pas casser l'entité
+        _LOGGER.debug("Visuel illisible, servi tel quel")
+        return raw
+
+    width, height = image.size
+    side = max(width, height)
+    if width == height:
+        canvas = image
+    else:
+        canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+        canvas.paste(image, ((side - width) // 2, (side - height) // 2))
+
+    # Toujours ré-encoder en PNG : les appelants annoncent `image/png`, et une source JPEG
+    # déjà carrée renverrait sinon un type incohérent.
+    buffer = io.BytesIO()
+    canvas.save(buffer, format="PNG", optimize=True)
+    return buffer.getvalue()
+
+
+@callback
+def shared_artwork_picture(hass: HomeAssistant, entry: ConfigEntry) -> str | None:
+    """URL de l'entité `image` de cette intégration, déjà mise au carré.
+
+    Les capteurs et sélecteurs ne peuvent pas transformer une image : leur `entity_picture`
+    n'est qu'une URL. On les fait donc pointer vers l'entité `image`, qui sert le même
+    contenu (le visuel en cours) mais carré. Repli sur l'URL brute si l'entité n'est pas
+    encore là — au pire le logo est recadré, comme avant.
+    """
+    registry = er.async_get(hass)
+    entity_id = registry.async_get_entity_id("image", DOMAIN, f"{entry.entry_id}_artwork")
+    if entity_id is None:
+        return None
+    state = hass.states.get(entity_id)
+    if state is None:
+        return None
+    picture = state.attributes.get("entity_picture")
+    return picture if isinstance(picture, str) else None

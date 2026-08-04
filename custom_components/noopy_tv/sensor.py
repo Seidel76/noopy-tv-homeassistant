@@ -42,7 +42,7 @@ from .const import (
     DOMAIN,
 )
 from .device import build_device_info
-from .images import proxy_image_url
+from .images import proxy_image_url, shared_artwork_picture
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -201,7 +201,10 @@ class NoopyTVCurrentChannelSensor(CoordinatorEntity, SensorEntity):
         return "Lecture en cours"
 
     def _proxy_image_url(self, raw_url: str, size: int = 200) -> str:
-        return proxy_image_url(self._entry, raw_url, size)
+        # Priorité à l'entité `image`, qui sert le MÊME visuel mais carré : un capteur ne
+        # peut pas transformer une image, son `entity_picture` n'est qu'une URL.
+        shared = shared_artwork_picture(self.hass, self._entry)
+        return shared or proxy_image_url(self._entry, raw_url, size)
 
     @property
     def entity_picture(self) -> str | None:

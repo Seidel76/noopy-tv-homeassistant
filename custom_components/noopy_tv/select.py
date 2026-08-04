@@ -30,7 +30,7 @@ from .const import (
     DOMAIN,
 )
 from .device import build_device_info
-from .images import proxy_image_url
+from .images import proxy_image_url, shared_artwork_picture
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -154,7 +154,9 @@ class _ChannelSelectBase(CoordinatorEntity, SelectEntity):
         return build_device_info(self._entry, getattr(self._api, "info", None))
 
     def _proxy_image_url(self, raw_url: str, size: int = 48) -> str:
-        return proxy_image_url(self._entry, raw_url, size)
+        # Idem capteur : on réutilise l'entité `image`, déjà mise au carré.
+        shared = shared_artwork_picture(self.hass, self._entry)
+        return shared or proxy_image_url(self._entry, raw_url, size)
 
     def _current_channel(self) -> dict[str, Any] | None:
         if not self.coordinator.data:
