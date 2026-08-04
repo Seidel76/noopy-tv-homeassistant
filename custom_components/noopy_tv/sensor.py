@@ -19,7 +19,7 @@ from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.const import PERCENTAGE
 from homeassistant.util import dt as dt_util
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -326,19 +326,24 @@ class NoopyTVCurrentChannelSensor(CoordinatorEntity, SensorEntity):
 
 
 class NoopyTVProgrammeProgressSensor(CoordinatorEntity, SensorEntity):
-    """Avancement du programme EPG en cours, en pourcentage.
+    """Avancement de ce qui est en cours de lecture, en pourcentage.
 
-    ⚠️ La valeur est RECALCULÉE depuis `start` / `end` plutôt que lue dans le payload : le
-    champ `progress` de l'app vaut 0→1 côté lecteur mais 0→100 dans la liste des chaînes
-    (`progress_percent`). Recalculer supprime l'ambiguïté et reste juste quel que soit le
-    chemin qui a rempli l'EPG.
+    Deux sources selon le contenu — c'est indispensable, elles n'existent pas en même temps :
 
-    Les attributs `start` / `end` permettent à une carte de dashboard d'animer la barre
-    entre deux mises à jour, qui n'arrivent qu'au rythme du coordinator.
+    - **Direct** : les horaires du programme EPG. La valeur est RECALCULÉE depuis `start` /
+      `end` plutôt que lue dans le payload, car le champ `progress` de l'app vaut 0→1 côté
+      lecteur mais 0→100 dans la liste des chaînes.
+    - **Film / épisode** : la position de lecture (`currentTime` / `duration`). Un contenu
+      VOD n'a évidemment aucun programme EPG ; se limiter à l'EPG rendait le capteur
+      `unavailable` pendant tout un film.
+
+    Les attributs `start`/`end` (direct) ou `position_seconds`/`duration_seconds` +
+    `position_updated_at` (VOD) permettent à une carte d'animer la barre entre deux mises à
+    jour, qui n'arrivent qu'au rythme du coordinator.
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Progression du programme"
+    _attr_name = "Progression"
     _attr_icon = "mdi:progress-clock"
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_suggested_display_precision = 0
@@ -347,20 +352,40 @@ class NoopyTVProgrammeProgressSensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_programme_progress"
+        self._last_position: float | None = None
+        self._last_position_updated = dt_util.utcnow()
 
     @property
     def device_info(self) -> DeviceInfo:
         return build_device_info(self._entry)
 
-    def _programme(self) -> dict[str, Any]:
+    # ------------------------------------------------------------------ source
+
+    def _state_payload(self) -> dict[str, Any]:
         if not self.coordinator.data:
             return {}
-        state = self.coordinator.data.get("playback_state") or {}
+        return self.coordinator.data.get("playback_state") or {}
+
+    def _is_vod(self) -> bool:
+        return self._state_payload().get("contentType") in ("movie", "episode")
+
+    def _vod_bounds(self) -> tuple[float, float] | None:
+        ps = self._state_payload()
+        position = ps.get("currentTime")
+        duration = ps.get("duration")
+        if not isinstance(position, (int, float)) or not isinstance(duration, (int, float)):
+            return None
+        if duration <= 0:
+            return None
+        return float(position), float(duration)
+
+    def _programme(self) -> dict[str, Any]:
+        state = self._state_payload()
         programme = state.get("currentProgramme")
         if isinstance(programme, dict):
             return programme
         # Repli : la chaîne courante porte aussi son programme, mais aplati.
-        player = self.coordinator.data.get("player") or {}
+        player = (self.coordinator.data or {}).get("player") or {}
         channel = player.get("current_channel") or {}
         raw = channel.get("current_program")
         return raw if isinstance(raw, dict) else {}
@@ -371,17 +396,42 @@ class NoopyTVProgrammeProgressSensor(CoordinatorEntity, SensorEntity):
             return None
         return dt_util.parse_datetime(value)
 
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Horodate les sauts de position, pour que la carte puisse extrapoler.
+
+        Le coordinator ne rafraîchit qu'au rythme du sondage (les events SSE ne sont émis
+        qu'au zap) : sans cet horodatage, une barre de progression de film avancerait par
+        paliers d'une minute.
+        """
+        bounds = self._vod_bounds()
+        if bounds is not None:
+            position = bounds[0]
+            if self._last_position is None or abs(position - self._last_position) >= 1:
+                self._last_position = position
+                self._last_position_updated = dt_util.utcnow()
+        super()._handle_coordinator_update()
+
+    # ------------------------------------------------------------------- état
+
     @property
     def available(self) -> bool:
+        if not self.coordinator.last_update_success:
+            return False
+        if self._is_vod():
+            return self._vod_bounds() is not None
         programme = self._programme()
-        return bool(
-            self.coordinator.last_update_success
-            and self._parse(programme.get("start"))
-            and self._parse(programme.get("end"))
-        )
+        return bool(self._parse(programme.get("start")) and self._parse(programme.get("end")))
 
     @property
     def native_value(self) -> float | None:
+        if self._is_vod():
+            bounds = self._vod_bounds()
+            if bounds is None:
+                return None
+            position, duration = bounds
+            return round(max(0.0, min(100.0, position / duration * 100)), 1)
+
         programme = self._programme()
         start = self._parse(programme.get("start"))
         end = self._parse(programme.get("end"))
@@ -395,10 +445,33 @@ class NoopyTVProgrammeProgressSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
+        ps = self._state_payload()
+        content_type = ps.get("contentType")
+
+        if self._is_vod():
+            bounds = self._vod_bounds()
+            if bounds is None:
+                return {"content_type": content_type}
+            position, duration = bounds
+            attrs: dict[str, Any] = {
+                "content_type": content_type,
+                "title": ps.get("contentTitle"),
+                "subtitle": ps.get("contentSubtitle"),
+                "position_seconds": int(position),
+                "duration_seconds": int(duration),
+                "duration_minutes": int(duration // 60),
+                "remaining_minutes": max(0, int((duration - position) // 60)),
+                # Permet à une carte d'extrapoler entre deux mises à jour.
+                "position_updated_at": self._last_position_updated.isoformat(),
+                "is_playing": ps.get("isPlaying"),
+            }
+            return {k: v for k, v in attrs.items() if v is not None}
+
         programme = self._programme()
         start = self._parse(programme.get("start"))
         end = self._parse(programme.get("end"))
-        attrs: dict[str, Any] = {
+        attrs = {
+            "content_type": content_type,
             "title": programme.get("title"),
             "start": programme.get("start"),
             "end": programme.get("end"),
@@ -406,8 +479,7 @@ class NoopyTVProgrammeProgressSensor(CoordinatorEntity, SensorEntity):
         }
         if start and end:
             attrs["duration_minutes"] = int((end - start).total_seconds() // 60)
-            remaining = (end - dt_util.utcnow()).total_seconds()
-            attrs["remaining_minutes"] = max(0, int(remaining // 60))
+            attrs["remaining_minutes"] = max(0, int((end - dt_util.utcnow()).total_seconds() // 60))
         icon_url = programme.get("iconURL") or programme.get("icon_url")
         if icon_url:
             attrs["icon_url"] = icon_url
