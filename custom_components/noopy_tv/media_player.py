@@ -29,7 +29,8 @@ from homeassistant.components.media_player import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceNotSupported
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -406,13 +407,99 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                 "l'intégration OneTV pour pouvoir lancer l'app depuis Home Assistant."
             )
 
-        await self.hass.services.async_call(
-            "media_player",
-            "select_source",
-            {"entity_id": entity_id, "source": self._apple_tv_source()},
-            blocking=True,
-        )
+        await self._wake_apple_tv(entity_id)
+        await self._select_source_with_retry(entity_id)
         await self._wait_until_reachable()
+
+    async def _wake_apple_tv(self, entity_id: str, timeout: float = 20.0) -> None:
+        """Réveille l'Apple TV avant tout `select_source`.
+
+        ⚠️ Endormie, l'Apple TV retire SELECT_SOURCE de ses `supported_features` et Home
+        Assistant refuse l'appel avec `ServiceNotSupported` avant même de l'exécuter. Sans
+        ce réveil, lancer OneTV depuis une automatisation échoue dès que le téléviseur est
+        éteint — c'est-à-dire précisément au retour à la maison.
+
+        ⚠️ Mesuré sur l'appareil : ni `media_player.turn_on`, ni `remote.turn_on` ne la
+        réveillent (l'entité reste `off`). Seul l'envoi d'une touche — `remote.send_command`
+        avec `home` — la sort de veille, en ~8 s.
+        """
+        if self.hass.states.get(entity_id) is None:
+            raise HomeAssistantError(f"L'entité {entity_id} n'existe pas.")
+
+        if not self._apple_tv_is_asleep(entity_id):
+            return
+
+        remote_entity = self._companion_remote(entity_id)
+        if remote_entity is None:
+            _LOGGER.debug(
+                "OneTV: pas d'entité remote associée à %s, réveil impossible", entity_id
+            )
+            return
+
+        try:
+            await self.hass.services.async_call(
+                "remote",
+                "send_command",
+                {"entity_id": remote_entity, "command": "home"},
+                blocking=True,
+            )
+        except HomeAssistantError as err:
+            _LOGGER.debug("OneTV: réveil via %s impossible (%s)", remote_entity, err)
+            return
+
+        deadline = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(1)
+            if not self._apple_tv_is_asleep(entity_id):
+                return
+
+    def _apple_tv_is_asleep(self, entity_id: str) -> bool:
+        state = self.hass.states.get(entity_id)
+        return state is None or state.state in ("off", "unavailable", "standby", "unknown")
+
+    def _companion_remote(self, entity_id: str) -> str | None:
+        """Entité `remote.*` du même appareil que le media_player Apple TV."""
+        registry = er.async_get(self.hass)
+        entry = registry.async_get(entity_id)
+        if entry is None or entry.device_id is None:
+            return None
+        for candidate in er.async_entries_for_device(
+            registry, entry.device_id, include_disabled_entities=False
+        ):
+            if candidate.domain == "remote":
+                return candidate.entity_id
+        return None
+
+    async def _select_source_with_retry(
+        self, entity_id: str, attempts: int = 5, delay: float = 3.0
+    ) -> None:
+        """Lance l'app, en réessayant tant que l'Apple TV refuse le changement de source.
+
+        ⚠️ Ne PAS se fier à l'attribut `supported_features` pour savoir si l'appel va
+        passer : il est mis à jour de façon différée. Observé sur l'appareil — l'attribut
+        annonçait SELECT_SOURCE disponible alors que l'appel levait encore
+        `ServiceNotSupported`. Seul le réessai est fiable.
+        """
+        last_error: Exception | None = None
+        for attempt in range(attempts):
+            try:
+                await self.hass.services.async_call(
+                    "media_player",
+                    "select_source",
+                    {"entity_id": entity_id, "source": self._apple_tv_source()},
+                    blocking=True,
+                )
+                return
+            except ServiceNotSupported as err:
+                last_error = err
+                if attempt < attempts - 1:
+                    await asyncio.sleep(delay)
+
+        raise HomeAssistantError(
+            f"{entity_id} refuse toujours le changement de source après "
+            f"{attempts} tentatives — l'Apple TV ne se réveille pas. Allumez le téléviseur "
+            "puis réessayez."
+        ) from last_error
 
     async def _wait_until_reachable(self, timeout: float = 40.0) -> bool:
         """Attend que le serveur HTTP de l'app réponde de nouveau.
