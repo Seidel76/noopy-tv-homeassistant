@@ -192,7 +192,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     _LOGGER.info(
-        "OneTV v4.1.3 configuré: %s:%d (scan=%ss)",
+        "OneTV v4.1.4 configuré: %s:%d (scan=%ss)",
         entry.data[CONF_HOST],
         entry.data.get(CONF_PORT, DEFAULT_PORT),
         int(scan_interval.total_seconds()),

@@ -63,11 +63,34 @@ class NoopyTVGoLiveButton(_NoopyTVButtonBase):
 
     @property
     def available(self) -> bool:
-        """Seulement pertinent sur un contenu en direct effectivement en cours."""
+        """Disponible UNIQUEMENT si on a quitté le direct.
+
+        ⚠️ Piège de mise en cache côté app : jusqu'à la version d'août 2026, le snapshot
+        renvoyait `isAtLiveEdge = (contentType == .channel)` et `timeshiftDelay = 0` **en
+        dur** — donc « toujours au bord du direct », quoi qu'il arrive. Se fier au seul
+        `isAtLiveEdge` rendrait le bouton invisible en permanence sur ces versions.
+
+        On combine donc trois signaux, du plus fiable au plus précis :
+        - `isPaused` : une chaîne en direct mise en pause est forcément en retard. Ce
+          drapeau, lui, a toujours reflété l'état réel.
+        - `isAtLiveEdge` à false : exact dès que l'app pousse la vraie valeur.
+        - `timeshiftDelay > 0` : idem, et couvre le rembobinage DVR sans pause.
+        """
         if not self.coordinator.last_update_success or not self.coordinator.data:
             return False
+
         state = self.coordinator.data.get("playback_state") or {}
-        return bool(state.get("isPlayerActive")) and bool(state.get("isLive"))
+        if not state.get("isPlayerActive") or not state.get("isLive"):
+            return False
+
+        if state.get("isPaused"):
+            return True
+        if state.get("isAtLiveEdge") is False:
+            return True
+        try:
+            return float(state.get("timeshiftDelay") or 0) > 0
+        except (TypeError, ValueError):
+            return False
 
     async def async_press(self) -> None:
         try:

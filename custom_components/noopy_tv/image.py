@@ -41,6 +41,15 @@ class NoopyTVArtworkImage(CoordinatorEntity, ImageEntity):
 
     _attr_has_entity_name = True
     _attr_name = "Logo de la chaîne"
+    # Masquée par défaut : elle encombre la liste des entités alors que le visuel est déjà
+    # porté par le lecteur, le capteur et les sélecteurs. Elle reste utilisable dans une
+    # carte, et affichable en un clic.
+    #
+    # ⚠️ MASQUÉE, surtout pas DÉSACTIVÉE : `entity_registry_enabled_default = False`
+    # supprimerait l'entité, or le capteur et les sélecteurs pointent vers elle pour obtenir
+    # une image CARRÉE (ils ne peuvent pas transformer une image eux-mêmes). Les logos
+    # redeviendraient rognés. Masquée, l'entité existe et publie son état : la chaîne tient.
+    _attr_entity_registry_visible_default = False
 
     def __init__(self, hass: HomeAssistant, coordinator, api, entry: ConfigEntry) -> None:
         CoordinatorEntity.__init__(self, coordinator)
