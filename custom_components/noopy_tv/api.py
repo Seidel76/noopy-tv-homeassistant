@@ -329,6 +329,21 @@ class NoopyTVAPI:
             return []
         return data.get("categories", []) or []
 
+    async def get_series_episodes(self, series_id: str) -> tuple[bool, list[dict[str, Any]]]:
+        """Épisodes d'une série (`/api/v1/series/{id}/episodes`, app >= 2026-08).
+
+        Retourne `(loading, episodes)`. Les épisodes ne sont pas portés par la fiche série :
+        l'app les charge à la demande par fournisseur. Quand son cache est vide, le serveur
+        déclenche le chargement et répond `loading: true` avec une liste vide — l'appelant
+        rappelle un instant plus tard. Un serveur plus ancien renvoie 404 : `(False, [])`.
+        """
+        try:
+            data = await self._request(f"/api/v1/series/{series_id}/episodes", timeout=10)
+        except NoopyTVAPIError as err:
+            _LOGGER.debug("get_series_episodes(%s) failed: %s", series_id, err)
+            return False, []
+        return bool(data.get("loading")), data.get("episodes", []) or []
+
     async def listen_events(
         self,
         on_event: Callable[[str, dict[str, Any]], None],

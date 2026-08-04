@@ -11,10 +11,13 @@ HTTP push-based côté serveur OneTV (pas de hop main thread, pas de freeze).
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 from urllib.parse import quote
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.const import PERCENTAGE
+from homeassistant.util import dt as dt_util
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
@@ -38,6 +41,7 @@ from .const import (
     ATTR_TVG_ID,
     DOMAIN,
 )
+from .device import build_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,9 +57,10 @@ async def async_setup_entry(
     entities: list[SensorEntity] = [
         NoopyTVStatsSensor(coordinator, entry),
         NoopyTVCurrentChannelSensor(coordinator, entry),
+        NoopyTVProgrammeProgressSensor(coordinator, entry),
     ]
     async_add_entities(entities)
-    _LOGGER.info("OneTV v3.1.0 : %d sensor(s) global(aux) créé(s)", len(entities))
+    _LOGGER.info("OneTV : %d sensor(s) créé(s)", len(entities))
 
 
 class NoopyTVStatsSensor(CoordinatorEntity, SensorEntity):
@@ -72,13 +77,7 @@ class NoopyTVStatsSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-            name="OneTV",
-            manufacturer="OneTV",
-            model="IPTV App",
-            sw_version="3.1.0",
-        )
+        return build_device_info(self._entry)
 
     @property
     def native_value(self) -> int | None:
@@ -133,13 +132,7 @@ class NoopyTVCurrentChannelSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-            name="OneTV",
-            manufacturer="OneTV",
-            model="IPTV App",
-            sw_version="3.1.0",
-        )
+        return build_device_info(self._entry)
 
     def _player(self) -> dict[str, Any]:
         if not self.coordinator.data:
@@ -329,3 +322,92 @@ class NoopyTVCurrentChannelSensor(CoordinatorEntity, SensorEntity):
                 attrs[ATTR_PROGRESS_PERCENT] = round((psp.get("progress") or 0) * 100, 1)
 
         return attrs
+
+
+class NoopyTVProgrammeProgressSensor(CoordinatorEntity, SensorEntity):
+    """Avancement du programme EPG en cours, en pourcentage.
+
+    ⚠️ La valeur est RECALCULÉE depuis `start` / `end` plutôt que lue dans le payload : le
+    champ `progress` de l'app vaut 0→1 côté lecteur mais 0→100 dans la liste des chaînes
+    (`progress_percent`). Recalculer supprime l'ambiguïté et reste juste quel que soit le
+    chemin qui a rempli l'EPG.
+
+    Les attributs `start` / `end` permettent à une carte de dashboard d'animer la barre
+    entre deux mises à jour, qui n'arrivent qu'au rythme du coordinator.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Progression du programme"
+    _attr_icon = "mdi:progress-clock"
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_suggested_display_precision = 0
+
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_programme_progress"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return build_device_info(self._entry)
+
+    def _programme(self) -> dict[str, Any]:
+        if not self.coordinator.data:
+            return {}
+        state = self.coordinator.data.get("playback_state") or {}
+        programme = state.get("currentProgramme")
+        if isinstance(programme, dict):
+            return programme
+        # Repli : la chaîne courante porte aussi son programme, mais aplati.
+        player = self.coordinator.data.get("player") or {}
+        channel = player.get("current_channel") or {}
+        raw = channel.get("current_program")
+        return raw if isinstance(raw, dict) else {}
+
+    @staticmethod
+    def _parse(value: Any) -> datetime | None:
+        if not isinstance(value, str) or not value:
+            return None
+        return dt_util.parse_datetime(value)
+
+    @property
+    def available(self) -> bool:
+        programme = self._programme()
+        return bool(
+            self.coordinator.last_update_success
+            and self._parse(programme.get("start"))
+            and self._parse(programme.get("end"))
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        programme = self._programme()
+        start = self._parse(programme.get("start"))
+        end = self._parse(programme.get("end"))
+        if start is None or end is None:
+            return None
+        total = (end - start).total_seconds()
+        if total <= 0:
+            return None
+        elapsed = (dt_util.utcnow() - start).total_seconds()
+        return round(max(0.0, min(100.0, elapsed / total * 100)), 1)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        programme = self._programme()
+        start = self._parse(programme.get("start"))
+        end = self._parse(programme.get("end"))
+        attrs: dict[str, Any] = {
+            "title": programme.get("title"),
+            "start": programme.get("start"),
+            "end": programme.get("end"),
+            "description": programme.get("desc") or programme.get("description"),
+        }
+        if start and end:
+            attrs["duration_minutes"] = int((end - start).total_seconds() // 60)
+            remaining = (end - dt_util.utcnow()).total_seconds()
+            attrs["remaining_minutes"] = max(0, int(remaining // 60))
+        icon_url = programme.get("iconURL") or programme.get("icon_url")
+        if icon_url:
+            attrs["icon_url"] = icon_url
+        return {k: v for k, v in attrs.items() if v is not None}

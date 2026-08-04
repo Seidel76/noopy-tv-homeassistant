@@ -25,7 +25,13 @@
   up in Home Assistant in well under a second (polling stays as a safety net)
 - **App Launching** — Pair your Apple TV entity and `media_player.turn_on` starts OneTV when
   the app is closed
-- **Live EPG** — Current program, progress, and next program info
+- **Live EPG** — Current program with a progress sensor (percentage elapsed, title, start,
+  end, remaining minutes, description)
+- **Artwork entity** — `image.*` serving the current channel logo (or the movie/episode
+  poster) through Home Assistant, so dashboards and notifications can use it directly
+- **Track selection** — Audio and subtitle track selectors for the current content
+- **Buttons** — Return to live, refresh
+- **Diagnostics** — Downloadable from the integration page, with the API key redacted
 - **Channel Logos** — Displayed via local proxy
 - **Category Selectors** — One selector per category for quick access
 - **Services** — `play_channel`, `play_movie`, `play_episode`, `send_command`, `refresh`

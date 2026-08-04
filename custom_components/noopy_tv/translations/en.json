@@ -32,7 +32,8 @@
         "data": {
           "scan_interval": "Update interval (seconds)",
           "apple_tv_entity": "Paired Apple TV",
-          "apple_tv_source": "App name on the Apple TV"
+          "apple_tv_source": "App name on the Apple TV",
+          "enable_category_selects": "Create one selector per category"
         }
       }
     }
@@ -108,6 +109,12 @@
           "description": "Command parameters."
         }
       }
+    }
+  },
+  "issues": {
+    "no_apple_tv_paired": {
+      "title": "OneTV: no Apple TV paired",
+      "description": "Pair your Apple TV in the OneTV integration options. Without it Home Assistant cannot launch the app while it is closed: `media_player.turn_on` fails and any automation relying on it silently does nothing."
     }
   }
 }

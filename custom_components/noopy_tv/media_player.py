@@ -43,6 +43,7 @@ from .const import (
     DEFAULT_APPLE_TV_SOURCE,
     DOMAIN,
 )
+from .device import build_device_info
 from .naming import is_channel_name_valid
 
 _LOGGER = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ _BROWSE_ROOT = "root"
 _BROWSE_CHANNELS = "channels"
 _BROWSE_MOVIES = "movies"
 _BROWSE_SERIES = "series"
+_BROWSE_EPISODES = "episodes"
 
 
 async def async_setup_entry(
@@ -82,12 +84,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-            name="OneTV",
-            manufacturer="OneTV",
-            model="IPTV App",
-        )
+        return build_device_info(self._entry, getattr(self._api, "info", None))
 
     @property
     def available(self) -> bool:
@@ -580,6 +577,8 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             return await self._browse_vod(_BROWSE_SERIES)
         if media_content_id.startswith(f"{_BROWSE_MOVIES}/"):
             return await self._browse_vod_category(_BROWSE_MOVIES, media_content_id.split("/", 1)[1])
+        if media_content_id.startswith(f"{_BROWSE_EPISODES}/"):
+            return await self._browse_episodes(media_content_id.split("/", 1)[1])
         if media_content_id.startswith(f"{_BROWSE_SERIES}/"):
             return await self._browse_vod_category(_BROWSE_SERIES, media_content_id.split("/", 1)[1])
         raise HomeAssistantError(f"Chemin de navigation inconnu: {media_content_id}")
@@ -724,13 +723,13 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             children.append(
                 BrowseMedia(
                     media_class=MediaClass.MOVIE if is_movies else MediaClass.TV_SHOW,
-                    # Les séries démarrent au S01E01 : l'API ne liste pas les épisodes.
-                    # Pour un épisode précis, utiliser le service `noopy_tv.play_episode`.
-                    media_content_id=item_id if is_movies else f"{item_id}/1/1",
-                    media_content_type=MediaType.MOVIE if is_movies else MediaType.EPISODE,
+                    media_content_id=item_id if is_movies else f"{_BROWSE_EPISODES}/{item_id}",
+                    media_content_type=MediaType.MOVIE if is_movies else "",
                     title=str(item.get("name", "")),
-                    can_play=True,
-                    can_expand=False,
+                    # Une série se déplie sur ses épisodes (app >= 2026-08). Avant, elle se
+                    # lançait « au S01E01 » faute d'endpoint pour les lister.
+                    can_play=is_movies,
+                    can_expand=not is_movies,
                     thumbnail=(
                         self._proxy_image_url(str(item["posterURL"]), size=300)
                         if item.get("posterURL")
@@ -746,5 +745,43 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             can_play=False,
             can_expand=True,
             children_media_class=MediaClass.MOVIE if is_movies else MediaClass.TV_SHOW,
+            children=children,
+        )
+
+    async def _browse_episodes(self, series_id: str) -> BrowseMedia:
+        """Épisodes d'une série.
+
+        ⚠️ L'app charge les épisodes à la demande : le premier appel peut répondre
+        « en cours de chargement » avec une liste vide. On repasse alors une fois, une
+        seconde plus tard, plutôt que de renvoyer un dossier vide à l'utilisateur.
+        """
+        loading, episodes = await self._api.get_series_episodes(series_id)
+        if loading and not episodes:
+            await asyncio.sleep(1.5)
+            _, episodes = await self._api.get_series_episodes(series_id)
+
+        children = [
+            BrowseMedia(
+                media_class=MediaClass.EPISODE,
+                media_content_id=f"{series_id}/{episode.get('season', 1)}/{episode.get('episode', 1)}",
+                media_content_type=MediaType.EPISODE,
+                title=(
+                    f"S{int(episode.get('season', 0)):02d}E{int(episode.get('episode', 0)):02d}"
+                    f" · {episode.get('title', '')}".strip()
+                ),
+                can_play=True,
+                can_expand=False,
+            )
+            for episode in episodes
+        ]
+
+        return BrowseMedia(
+            media_class=MediaClass.DIRECTORY,
+            media_content_id=f"{_BROWSE_EPISODES}/{series_id}",
+            media_content_type="",
+            title="Épisodes" if children else "Épisodes (indisponibles)",
+            can_play=False,
+            can_expand=True,
+            children_media_class=MediaClass.EPISODE,
             children=children,
         )

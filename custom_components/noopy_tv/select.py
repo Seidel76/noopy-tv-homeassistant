@@ -18,13 +18,18 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from homeassistant.exceptions import HomeAssistantError
+
+from .api import NoopyTVAPIError
 from .const import (
     ATTR_CURRENT_CHANNEL,
     ATTR_CURRENT_CHANNEL_ID,
     ATTR_CURRENT_CHANNEL_LOGO,
     ATTR_PLAYER_ACTIVE,
+    CONF_ENABLE_CATEGORY_SELECTS,
     DOMAIN,
 )
+from .device import build_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -55,10 +60,19 @@ async def async_setup_entry(
     # une nouvelle catégorie au runtime)
     created_categories: set[str] = set()
 
-    entities: list[SelectEntity] = [NoopyTVChannelSelect(coordinator, api, entry)]
+    entities: list[SelectEntity] = [
+        NoopyTVChannelSelect(coordinator, api, entry),
+        # ⚡️ v4.1.0 — les pistes étaient déjà dans le payload récupéré à chaque cycle
+        # (`audioTracks` / `subtitleTracks` : index, nom, langue, piste active) et les
+        # commandes `setAudioTrack` / `setSubtitleTrack` implémentées côté app. Rien de tout
+        # ça n'était exposé.
+        NoopyTVTrackSelect(coordinator, api, entry, kind="audio"),
+        NoopyTVTrackSelect(coordinator, api, entry, kind="subtitle"),
+    ]
 
-    # Créer un select par catégorie (initial)
-    initial_categories = _categories_from_coordinator(coordinator)
+    # Les 6 selects par catégorie restent à `unknown` en permanence : désactivables.
+    category_selects_enabled = entry.options.get(CONF_ENABLE_CATEGORY_SELECTS, True)
+    initial_categories = _categories_from_coordinator(coordinator) if category_selects_enabled else []
     for category_name in initial_categories:
         entities.append(NoopyTVCategorySelect(coordinator, api, entry, category_name))
         created_categories.add(category_name)
@@ -75,6 +89,8 @@ async def async_setup_entry(
     # apparaissent au runtime (changement playlist, refresh).
     @callback
     def _async_add_new_category_selects() -> None:
+        if not category_selects_enabled:
+            return
         new_cats = _categories_from_coordinator(coordinator)
         added: list[NoopyTVCategorySelect] = []
         for cat in new_cats:
@@ -133,14 +149,8 @@ class _ChannelSelectBase(CoordinatorEntity, SelectEntity):
         self._options_cache_src: object | None = None
 
     @property
-    def device_info(self) -> dict[str, Any]:
-        return {
-            "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name": "OneTV",
-            "manufacturer": "OneTV",
-            "model": "IPTV App",
-            "sw_version": "3.1.0",
-        }
+    def device_info(self):
+        return build_device_info(self._entry, getattr(self._api, "info", None))
 
     def _proxy_image_url(self, raw_url: str, size: int = 48) -> str:
         host = self._entry.data.get("host", "")
@@ -314,3 +324,91 @@ class NoopyTVCategorySelect(_ChannelSelectBase):
                     attrs["current_program"] = cp.get("title")
                     attrs["progress_percent"] = cp.get("progress_percent", 0)
         return attrs
+
+
+class NoopyTVTrackSelect(CoordinatorEntity, SelectEntity):
+    """Sélecteur de piste audio ou de sous-titres du contenu en cours.
+
+    Les pistes sont déjà publiées par `/api/v1/player/state` sous la forme
+    `[{index, name, language, isSelected}]`, et l'app implémente `setAudioTrack` /
+    `setSubtitleTrack`. Cette entité ne coûte donc aucune requête supplémentaire.
+
+    ⚠️ Les options changent à CHAQUE contenu (un film n'a pas les mêmes pistes qu'une
+    chaîne). C'est attendu pour ce type d'entité — l'entité devient indisponible quand le
+    contenu courant n'expose aucune piste, plutôt que d'afficher une liste périmée.
+    """
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator, api, entry: ConfigEntry, kind: str) -> None:
+        super().__init__(coordinator)
+        self._api = api
+        self._entry = entry
+        self._kind = kind  # "audio" | "subtitle"
+        if kind == "audio":
+            self._attr_name = "Piste audio"
+            self._attr_icon = "mdi:volume-high"
+            self._payload_key = "audioTracks"
+            self._command = "setAudioTrack"
+        else:
+            self._attr_name = "Sous-titres"
+            self._attr_icon = "mdi:subtitles-outline"
+            self._payload_key = "subtitleTracks"
+            self._command = "setSubtitleTrack"
+        self._attr_unique_id = f"{entry.entry_id}_{kind}_track"
+
+    @property
+    def device_info(self):
+        return build_device_info(self._entry, getattr(self._api, "info", None))
+
+    def _tracks(self) -> list[dict[str, Any]]:
+        if not self.coordinator.data:
+            return []
+        state = self.coordinator.data.get("playback_state") or {}
+        return state.get(self._payload_key) or []
+
+    def _label(self, track: dict[str, Any]) -> str:
+        """Libellé lisible et surtout UNIQUE — deux pistes peuvent porter le même nom."""
+        name = str(track.get("name") or "").strip()
+        language = str(track.get("language") or "").strip()
+        index = track.get("index")
+        if name and language and language.lower() not in name.lower():
+            label = f"{name} ({language})"
+        else:
+            label = name or language or f"Piste {index}"
+        return f"{label} · {index}"
+
+    @property
+    def available(self) -> bool:
+        return bool(self.coordinator.last_update_success) and bool(self._tracks())
+
+    @property
+    def options(self) -> list[str]:
+        return [self._label(track) for track in self._tracks()]
+
+    @property
+    def current_option(self) -> str | None:
+        for track in self._tracks():
+            if track.get("isSelected"):
+                return self._label(track)
+        return None
+
+    async def async_select_option(self, option: str) -> None:
+        # L'index est suffixé au libellé (cf. `_label`) : on le relit plutôt que de faire
+        # confiance à l'unicité des noms de pistes.
+        track = next((t for t in self._tracks() if self._label(t) == option), None)
+        if track is None or track.get("index") is None:
+            raise HomeAssistantError(f"Piste introuvable : {option}")
+
+        try:
+            result = await self._api.send_command(
+                self._command, {"trackIndex": int(track["index"])}
+            )
+        except NoopyTVAPIError as err:
+            raise HomeAssistantError(f"OneTV : changement de piste impossible — {err}") from err
+        if not result.get("success", False):
+            raise HomeAssistantError(
+                f"OneTV a refusé le changement de piste : "
+                f"{result.get('error') or result.get('message')}"
+            )
+        await self.coordinator.async_request_refresh()

@@ -12,6 +12,16 @@ CONF_SCAN_INTERVAL = "scan_interval"
 # levier est l'Apple TV : `media_player.select_source` avec le nom de l'app dans `source_list`.
 # L'utilisateur associe donc son entité Apple TV ici pour que `media_player.turn_on` marche.
 CONF_APPLE_TV_ENTITY = "apple_tv_entity"
+# Identité annoncée par le TXT Bonjour (v4.1.0). `device_id` est STABLE et indépendant de
+# l'IP : sans lui, l'unique_id se basait sur host+port et un bail DHCP renouvelé créait une
+# entrée EN DOUBLE au lieu de mettre à jour l'existante.
+CONF_DEVICE_ID = "device_id"
+CONF_DEVICE_MODEL = "device_model"
+CONF_DEVICE_MANUFACTURER = "device_manufacturer"
+# Le TXT porte `sse=1/0` : inutile de tenter un flux push sur un serveur qui n'en a pas.
+CONF_SUPPORTS_SSE = "supports_sse"
+# Les 6 sélecteurs par catégorie restent à `unknown` en permanence et encombrent l'UI.
+CONF_ENABLE_CATEGORY_SELECTS = "enable_category_selects"
 CONF_APPLE_TV_SOURCE = "apple_tv_source"
 DEFAULT_APPLE_TV_SOURCE = "OneTV Connect"
 
@@ -86,4 +96,4 @@ ATTR_CURRENT_CHANNEL_ID = "current_channel_id"
 ATTR_CURRENT_CHANNEL_LOGO = "current_channel_logo"
 ATTR_AVAILABLE_CHANNELS = "available_channels"
 
-PLATFORMS = ["sensor", "select", "media_player", "binary_sensor"]
+PLATFORMS = ["sensor", "select", "media_player", "binary_sensor", "button", "image"]

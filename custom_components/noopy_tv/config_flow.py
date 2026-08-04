@@ -17,6 +17,11 @@ from .const import (
     CONF_API_KEY,
     CONF_APPLE_TV_ENTITY,
     CONF_APPLE_TV_SOURCE,
+    CONF_DEVICE_ID,
+    CONF_DEVICE_MANUFACTURER,
+    CONF_DEVICE_MODEL,
+    CONF_ENABLE_CATEGORY_SELECTS,
+    CONF_SUPPORTS_SSE,
     CONF_HOST,
     CONF_PORT,
     CONF_SCAN_INTERVAL,
@@ -27,6 +32,17 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _txt(properties: dict, *keys: str) -> str | None:
+    """Lit une clé du TXT Bonjour. Les valeurs arrivent en `bytes` ou en `str` selon HA."""
+    for key in keys:
+        value = properties.get(key)
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", errors="ignore")
+        if isinstance(value, str) and value:
+            return value
+    return None
 
 STEP_USER_DATA_SCHEMA = vol.Schema({
     vol.Required(CONF_HOST): str,
@@ -73,6 +89,10 @@ class NoopyTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._discovered_port: int = DEFAULT_PORT
         self._discovered_name: str = "OneTV"
         self._discovered_api_key: str | None = None
+        self._discovered_device_id: str | None = None
+        self._discovered_model: str | None = None
+        self._discovered_manufacturer: str | None = None
+        self._discovered_supports_sse: bool = True
     
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         errors: dict[str, str] = {}
@@ -107,14 +127,35 @@ class NoopyTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         properties = discovery_info.properties or {}
         if properties:
             _LOGGER.debug("Propriétés TXT: %s", properties)
-        advertised_key = properties.get("apiKey") or properties.get("api_key")
-        if isinstance(advertised_key, bytes):
-            advertised_key = advertised_key.decode("utf-8", errors="ignore")
-        if isinstance(advertised_key, str) and advertised_key:
+        advertised_key = _txt(properties, "apiKey", "api_key")
+        if advertised_key:
             self._discovered_api_key = advertised_key
 
-        await self.async_set_unique_id(f"noopytv_{self._discovered_host}_{self._discovered_port}")
-        self._abort_if_unique_id_configured()
+        # Identité + capacités annoncées (app ≥ 2026-08). Absents sur les versions
+        # antérieures : tous les usages en aval sont donc optionnels.
+        self._discovered_device_id = _txt(properties, "deviceId", "device_id")
+        self._discovered_model = _txt(properties, "model")
+        self._discovered_manufacturer = _txt(properties, "manufacturer")
+        sse_flag = _txt(properties, "sse")
+        # Absent = on tente quand même (l'ancien comportement, qui abandonne proprement
+        # sur un 501). Présent et à "0" = serveur sans flux push, inutile d'essayer.
+        self._discovered_supports_sse = sse_flag != "0"
+
+        # ⚠️ L'unique_id doit être STABLE. Basé sur host+port (comportement ≤ v4.0.x), un
+        # simple renouvellement de bail DHCP produisait un nouvel identifiant → Home Assistant
+        # créait une entrée EN DOUBLE et l'ancienne restait morte. On préfère donc le
+        # `deviceId` annoncé dans le TXT Bonjour (app ≥ 2026-08), avec repli sur host+port
+        # pour les versions antérieures.
+        await self.async_set_unique_id(self._unique_id_for_discovery())
+        # `updates=` : si l'appareil est déjà connu, on met à jour son adresse au lieu
+        # d'abandonner — c'est ce qui répare une IP qui a changé.
+        self._abort_if_unique_id_configured(
+            updates={
+                CONF_HOST: self._discovered_host,
+                CONF_PORT: self._discovered_port,
+                **({CONF_API_KEY: self._discovered_api_key} if self._discovered_api_key else {}),
+            }
+        )
 
         try:
             session = async_get_clientsession(self.hass)
@@ -141,14 +182,27 @@ class NoopyTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return await self.async_step_zeroconf_confirm()
     
+    def _unique_id_for_discovery(self) -> str:
+        """`deviceId` si l'app l'annonce, sinon repli host+port (comportement ≤ v4.0.x)."""
+        if self._discovered_device_id:
+            return f"noopytv_{self._discovered_device_id}"
+        return f"noopytv_{self._discovered_host}_{self._discovered_port}"
+
     async def async_step_zeroconf_confirm(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         if user_input is not None:
             data: dict[str, Any] = {
                 CONF_HOST: self._discovered_host,
                 CONF_PORT: self._discovered_port,
+                CONF_SUPPORTS_SSE: self._discovered_supports_sse,
             }
             if self._discovered_api_key:
                 data[CONF_API_KEY] = self._discovered_api_key
+            if self._discovered_device_id:
+                data[CONF_DEVICE_ID] = self._discovered_device_id
+            if self._discovered_model:
+                data[CONF_DEVICE_MODEL] = self._discovered_model
+            if self._discovered_manufacturer:
+                data[CONF_DEVICE_MANUFACTURER] = self._discovered_manufacturer
             return self.async_create_entry(
                 title=f"OneTV ({self._discovered_host})",
                 data=data,
@@ -193,5 +247,9 @@ class NoopyTVOptionsFlowHandler(config_entries.OptionsFlow):
                     selector.EntitySelectorConfig(domain="media_player")
                 ),
                 vol.Optional(CONF_APPLE_TV_SOURCE, default=current_source): str,
+                vol.Optional(
+                    CONF_ENABLE_CATEGORY_SELECTS,
+                    default=self.config_entry.options.get(CONF_ENABLE_CATEGORY_SELECTS, True),
+                ): bool,
             }),
         )
