@@ -24,7 +24,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 from .device import build_device_info
-from .images import proxy_image_url
+from .images import async_square_png, proxy_image_url
 
 
 async def async_setup_entry(
@@ -90,6 +90,16 @@ class NoopyTVArtworkImage(CoordinatorEntity, ImageEntity):
         # horodatage neuf, l'ancien logo resterait affiché après un zap.
         self._attr_image_last_updated = dt_util.utcnow()
         return True
+
+    async def async_image(self) -> bytes | None:
+        """Sert le visuel MIS AU CARRÉ.
+
+        Sans ça, Home Assistant recadre au centre et ampute un logo paysage (44 % de la
+        largeur perdue sur le logo M6).
+        """
+        if self._current_source is None:
+            return None
+        return await async_square_png(self.hass, self._current_source)
 
     @callback
     def _handle_coordinator_update(self) -> None:

@@ -44,7 +44,7 @@ from .const import (
     DOMAIN,
 )
 from .device import build_device_info
-from .images import proxy_image_url
+from .images import async_square_png, proxy_image_url
 from .naming import is_channel_name_valid
 
 _LOGGER = logging.getLogger(__name__)
@@ -285,6 +285,20 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         if current.get("logo_url"):
             return self._proxy_image_url(str(current["logo_url"]), size=200)
         return None
+
+    async def async_get_media_image(self) -> tuple[bytes | None, str | None]:
+        """Jaquette MISE AU CARRÉ avant d'être servie par Home Assistant.
+
+        HA récupère `media_image_url` côté serveur puis l'affiche dans une vignette carrée
+        avec recadrage centré : un logo de chaîne y perdait ses bords.
+        """
+        url = self.media_image_url
+        if not url:
+            return None, None
+        data = await async_square_png(self.hass, url)
+        if data is None:
+            return None, None
+        return data, "image/png"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
