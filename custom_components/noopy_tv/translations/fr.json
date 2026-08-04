@@ -32,7 +32,8 @@
         "data": {
           "scan_interval": "Intervalle de mise à jour (secondes)",
           "apple_tv_entity": "Apple TV associée",
-          "apple_tv_source": "Nom de l'app sur l'Apple TV"
+          "apple_tv_source": "Nom de l'app sur l'Apple TV",
+          "enable_category_selects": "Créer un sélecteur par catégorie"
         }
       }
     }
@@ -108,6 +109,12 @@
           "description": "Paramètres de la commande."
         }
       }
+    }
+  },
+  "issues": {
+    "no_apple_tv_paired": {
+      "title": "OneTV : aucune Apple TV associée",
+      "description": "Associez votre Apple TV dans les options de l'intégration OneTV. Sans elle, Home Assistant ne peut pas lancer l'application quand elle est fermée : `media_player.turn_on` échoue, et toute automatisation qui compte dessus reste sans effet."
     }
   }
 }

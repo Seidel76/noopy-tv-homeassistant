@@ -13,17 +13,20 @@ from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import NoopyTVAPI, NoopyTVAPIError, NoopyTVConnectionError
 from .const import (
     CONF_API_KEY,
+    CONF_APPLE_TV_ENTITY,
     CONF_HOST,
     CONF_PORT,
     CONF_SCAN_INTERVAL,
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
+    CONF_SUPPORTS_SSE,
     DOMAIN,
     PLATFORMS as PLATFORM_NAMES,
     SERVICE_PLAY_CHANNEL,
@@ -110,7 +113,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # ⚡️ v4.0.0 — écoute SSE : le serveur tvOS pousse un event à chaque zap (<50 ms).
     # Tant que le flux tient, le polling retombe à un simple filet de sécurité.
     sse = NoopyTVEventListener(hass, api, coordinator, poll_interval=scan_interval)
-    sse.start()
+    # Le TXT Bonjour annonce `sse=1/0`. Absent (anciennes apps) → on tente, le listener
+    # abandonne proprement sur un 501. Explicitement à 0 → serveur sans flux push (iOS),
+    # inutile d'ouvrir une connexion vouée à l'échec.
+    if entry.data.get(CONF_SUPPORTS_SSE, True):
+        sse.start()
+    else:
+        _LOGGER.debug("OneTV: le serveur annonce ne pas supporter SSE — polling seul")
 
     hass.data[DOMAIN][entry.entry_id] = {"api": api, "coordinator": coordinator, "sse": sse}
 
@@ -178,16 +187,39 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         DOMAIN, SERVICE_SEND_COMMAND, handle_send_command, schema=SEND_COMMAND_SCHEMA
     )
 
+    _async_check_apple_tv_pairing(hass, entry)
+
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     _LOGGER.info(
-        "OneTV v4.0.2 configuré: %s:%d (scan=%ss)",
+        "OneTV v4.1.0 configuré: %s:%d (scan=%ss)",
         entry.data[CONF_HOST],
         entry.data.get(CONF_PORT, DEFAULT_PORT),
         int(scan_interval.total_seconds()),
     )
 
     return True
+
+
+def _async_check_apple_tv_pairing(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Signale dans « Réparations » qu'aucune Apple TV n'est associée.
+
+    Sans elle, `media_player.turn_on` échoue et l'app ne peut pas être lancée depuis Home
+    Assistant — mais rien ne le signalait : l'utilisateur découvrait le problème le jour où
+    son automatisation de retour à la maison ne faisait rien.
+    """
+    issue_id = f"no_apple_tv_{entry.entry_id}"
+    if entry.options.get(CONF_APPLE_TV_ENTITY):
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
+        return
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        issue_id,
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="no_apple_tv_paired",
+    )
 
 
 def _cleanup_legacy_per_channel_sensors(hass: HomeAssistant, entry: ConfigEntry) -> None:

@@ -20,6 +20,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
+from .device import build_device_info
 
 
 async def async_setup_entry(
@@ -49,12 +50,7 @@ class NoopyTVAvailabilityBinarySensor(CoordinatorEntity, BinarySensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-            name="OneTV",
-            manufacturer="OneTV",
-            model="IPTV App",
-        )
+        return build_device_info(self._entry)
 
     @property
     def available(self) -> bool:
