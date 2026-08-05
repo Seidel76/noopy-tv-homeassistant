@@ -85,12 +85,19 @@ class NoopyTVGoLiveButton(_NoopyTVButtonBase):
 
         if state.get("isPaused"):
             return True
-        if state.get("isAtLiveEdge") is False:
-            return True
         try:
-            return float(state.get("timeshiftDelay") or 0) > 0
+            if float(state.get("timeshiftDelay") or 0) > 0:
+                return True
         except (TypeError, ValueError):
-            return False
+            pass
+        # ⚠️ `isAtLiveEdge` seul ne suffit PAS à décider. Sur les versions de l'app
+        # antérieures à août 2026, l'état de lecture n'est poussé qu'à un événement : après un
+        # zap, le dernier envoi capture un instant où TOUS les drapeaux sont encore à false
+        # (mesuré : figés 2 min pendant que la chaîne jouait). `isAtLiveEdge` restait donc à
+        # false en permanence et ce bouton était proposé sans arrêt.
+        # On exige que l'app affirme AUSSI être en lecture : la combinaison « je joue mais je
+        # ne suis pas au bord du direct » ne peut pas venir d'un état figé.
+        return state.get("isAtLiveEdge") is False and state.get("isPlaying") is True
 
     async def async_press(self) -> None:
         try:
@@ -105,10 +112,15 @@ class NoopyTVGoLiveButton(_NoopyTVButtonBase):
 
 
 class NoopyTVRefreshButton(_NoopyTVButtonBase):
-    """Force une relecture immédiate de l'état depuis l'app."""
+    """Relit immédiatement l'état depuis l'app.
+
+    ⚠️ N'agit PAS sur le téléviseur : ce bouton met à jour ce que Home Assistant SAIT, il ne
+    commande rien à l'app. D'où son nom explicite — « Rafraîchir » laissait croire à une
+    action sur la lecture.
+    """
 
     _attr_has_entity_name = True
-    _attr_name = "Rafraîchir"
+    _attr_name = "Actualiser les données"
     _attr_icon = "mdi:refresh"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
