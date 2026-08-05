@@ -83,6 +83,14 @@ class NoopyTVGoLiveButton(_NoopyTVButtonBase):
         if not state.get("isPlayerActive") or not state.get("isLive"):
             return False
 
+        # ⚠️ État CONTRADICTOIRE = état périmé, on ne décide rien. Côté app,
+        # `isPlaying` vaut `lecteur.isPlaying && !isPaused` : « en lecture » ET « en pause »
+        # simultanément est impossible par construction. Cette combinaison ne peut donc venir
+        # que d'un instantané figé (l'app ne repousse son état qu'à un événement avant la
+        # version d'août 2026), et s'y fier ferait clignoter le bouton au hasard.
+        if state.get("isPlaying") is True and state.get("isPaused") is True:
+            return False
+
         if state.get("isPaused"):
             return True
         try:
