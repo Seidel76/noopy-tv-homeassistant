@@ -46,6 +46,7 @@ from .const import (
 from .device import build_device_info
 from .images import async_square_png, proxy_image_url
 from .naming import is_channel_name_valid
+from .playback import infer_content_type
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -116,6 +117,10 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             return {}
         return self.coordinator.data.get("channels", {}) or {}
 
+    def _content_type(self) -> str:
+        """Type réel du contenu — cf. `infer_content_type` (l'app renvoie « none » en VOD)."""
+        return infer_content_type(self._state_payload(), self._player())
+
     def _reachable(self) -> bool:
         return bool(self.coordinator.last_update_success)
 
@@ -183,7 +188,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
 
     @property
     def media_content_type(self) -> str | None:
-        content = self._state_payload().get("contentType")
+        content = infer_content_type(self._state_payload(), self._player())
         if content == "channel":
             return MediaType.CHANNEL
         if content == "movie":
@@ -202,7 +207,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
     def media_title(self) -> str | None:
         """Titre = ce qu'on regarde. En live, c'est le PROGRAMME (pas la chaîne)."""
         ps = self._state_payload()
-        content = ps.get("contentType")
+        content = self._content_type()
         if content in ("channel", "catchup"):
             programme = ps.get("currentProgramme") or {}
             if programme.get("title"):
@@ -232,13 +237,13 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
 
     @property
     def media_series_title(self) -> str | None:
-        if self._state_payload().get("contentType") == "episode":
+        if self._content_type() == "episode":
             return self._state_payload().get("contentTitle")
         return None
 
     @property
     def media_episode(self) -> str | None:
-        if self._state_payload().get("contentType") == "episode":
+        if self._content_type() == "episode":
             return self._state_payload().get("contentSubtitle")
         return None
 
@@ -277,7 +282,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
     @property
     def media_image_url(self) -> str | None:
         ps = self._state_payload()
-        if ps.get("contentType") in ("movie", "episode") and ps.get("posterURL"):
+        if self._content_type() in ("movie", "episode") and ps.get("posterURL"):
             return self._proxy_image_url(str(ps["posterURL"]), size=400)
         if ps.get("logoURL"):
             return self._proxy_image_url(str(ps["logoURL"]), size=200)

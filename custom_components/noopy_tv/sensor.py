@@ -42,6 +42,7 @@ from .const import (
     DOMAIN,
 )
 from .device import build_device_info
+from .playback import infer_content_type
 from .images import proxy_image_url, shared_artwork_picture
 
 _LOGGER = logging.getLogger(__name__)
@@ -150,14 +151,7 @@ class NoopyTVCurrentChannelSensor(CoordinatorEntity, SensorEntity):
 
     def _content_type(self) -> str:
         """Retourne channel / movie / episode / catchup / none."""
-        ps = self._playback_state()
-        ct = ps.get("contentType")
-        if isinstance(ct, str) and ct:
-            return ct
-        # Fallback : si is_active mais pas de contentType, on considère channel
-        if self._player().get("is_active"):
-            return "channel"
-        return "none"
+        return infer_content_type(self._playback_state(), self._player())
 
     @property
     def icon(self) -> str:
@@ -367,7 +361,8 @@ class NoopyTVProgrammeProgressSensor(CoordinatorEntity, SensorEntity):
         return self.coordinator.data.get("playback_state") or {}
 
     def _is_vod(self) -> bool:
-        return self._state_payload().get("contentType") in ("movie", "episode")
+        player = (self.coordinator.data or {}).get("player") or {}
+        return infer_content_type(self._state_payload(), player) in ("movie", "episode")
 
     def _vod_bounds(self) -> tuple[float, float] | None:
         ps = self._state_payload()
@@ -446,7 +441,7 @@ class NoopyTVProgrammeProgressSensor(CoordinatorEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         ps = self._state_payload()
-        content_type = ps.get("contentType")
+        content_type = infer_content_type(ps, (self.coordinator.data or {}).get("player") or {})
 
         if self._is_vod():
             bounds = self._vod_bounds()
