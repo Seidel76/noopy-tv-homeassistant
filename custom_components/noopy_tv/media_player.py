@@ -843,7 +843,12 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                     # lançait « au S01E01 » faute d'endpoint pour les lister.
                     can_play=is_movies,
                     can_expand=not is_movies,
-                    thumbnail=self._thumbnail(item.get("posterURL")),
+                    # Un catalogue non enrichi par TMDB n'a pas de `posterURL` : l'affiche
+                    # brute du fournisseur arrive alors sous `logoURL` (films) ou `coverURL`
+                    # (séries), selon la version de l'application.
+                    thumbnail=self._thumbnail(
+                        item.get("posterURL") or item.get("logoURL") or item.get("coverURL")
+                    ),
                 )
             )
         # ⚠️ Le catalogue VOD de l'app est servi depuis ce qu'elle a en mémoire : une
@@ -964,7 +969,9 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                     title=label,
                     can_play=True,
                     can_expand=False,
-                    thumbnail=self._thumbnail(entry.get("posterURL")),
+                    thumbnail=self._thumbnail(
+                        entry.get("posterURL") or entry.get("logoURL") or entry.get("coverURL")
+                    ),
                 )
             )
 
