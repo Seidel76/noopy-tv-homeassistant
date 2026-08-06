@@ -29,6 +29,8 @@
   end, remaining minutes, description)
 - **Channel artwork** — the player serves the current channel logo (or the movie/episode
   poster) squared, so Home Assistant's circular thumbnails no longer crop it
+- **TMDB metadata** — overview, rating, year, genres, season and episode numbers, TMDB and
+  IMDb ids, exposed as attributes of the player entity
 - **Track selection** — Audio and subtitle track selectors for the current content
 - **Buttons** — Return to live, refresh
 - **Diagnostics** — Downloadable from the integration page, with the API key redacted
