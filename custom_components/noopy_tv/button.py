@@ -93,12 +93,13 @@ class NoopyTVGoLiveButton(_NoopyTVButtonBase):
 
         if state.get("isPaused"):
             return True
-        try:
-            if float(state.get("timeshiftDelay") or 0) > 0:
-                return True
-        except (TypeError, ValueError):
-            pass
-        # ⚠️ `isAtLiveEdge` seul ne suffit PAS à décider. Sur les versions de l'app
+
+        # ⚠️ NE PAS se fier à `timeshiftDelay > 0` : mesuré à 17,8 s sur une chaîne qu'on
+        # venait de lancer, sans aucune action. C'est le retard STRUCTUREL du tampon
+        # d'ouverture, pas un différé voulu — l'app elle-même distingue les deux avec son
+        # drapeau `timeshiftEngaged`. La pause et le rembobinage sont déjà couverts par les
+        # deux autres conditions ; cette clause n'ajoutait que des faux positifs.
+        # ⚠️ `isAtLiveEdge` seul ne suffit pas non plus. Sur les versions de l'app
         # antérieures à août 2026, l'état de lecture n'est poussé qu'à un événement : après un
         # zap, le dernier envoi capture un instant où TOUS les drapeaux sont encore à false
         # (mesuré : figés 2 min pendant que la chaîne jouait). `isAtLiveEdge` restait donc à
