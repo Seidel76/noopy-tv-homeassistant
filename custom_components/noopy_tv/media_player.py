@@ -282,8 +282,13 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
     @property
     def media_image_url(self) -> str | None:
         ps = self._state_payload()
-        if self._content_type() in ("movie", "episode") and ps.get("posterURL"):
-            return self._proxy_image_url(str(ps["posterURL"]), size=400)
+        if self._content_type() in ("movie", "episode"):
+            # 🎬 Visuel PAYSAGE en priorité : les vignettes de Home Assistant sont
+            # horizontales ou carrées, une affiche verticale y perd ses bords haut et bas.
+            # L'affiche verticale reste le repli quand TMDB n'a pas de backdrop.
+            artwork = ps.get("backdropURL") or ps.get("posterURL")
+            if artwork:
+                return self._proxy_image_url(str(artwork), size=780)
         if ps.get("logoURL"):
             return self._proxy_image_url(str(ps["logoURL"]), size=200)
         current = self._player().get("current_channel") or {}
@@ -314,6 +319,24 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             "is_at_live_edge": ps.get("isAtLiveEdge"),
             "timeshift_delay": ps.get("timeshiftDelay"),
         }
+        # 🎬 Métadonnées TMDB du contenu en cours (films et épisodes).
+        for source, target in (
+            ("overview", "overview"),
+            ("rating", "rating"),
+            ("year", "year"),
+            ("genres", "genres"),
+            ("tmdbID", "tmdb_id"),
+            ("imdbID", "imdb_id"),
+            ("seasonNumber", "season"),
+            ("episodeNumber", "episode"),
+            ("episodeTitle", "episode_title"),
+            ("backdropURL", "backdrop_url"),
+            ("posterURL", "poster_url"),
+        ):
+            value = ps.get(source)
+            if value not in (None, "", []):
+                attrs[target] = value
+
         audio = ps.get("audioTracks") or []
         subtitles = ps.get("subtitleTracks") or []
         if audio:
