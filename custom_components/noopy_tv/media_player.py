@@ -709,7 +709,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
 
         children = [
             BrowseMedia(
-                media_class=MediaClass.CHANNEL,
+                media_class=MediaClass.VIDEO,
                 media_content_id=channel_id,
                 media_content_type=MediaType.CHANNEL,
                 title=str(channel.get("name", "")),
@@ -733,7 +733,11 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             title=category,
             can_play=False,
             can_expand=True,
-            children_media_class=MediaClass.CHANNEL,
+            # ⚠️ `MediaClass.CHANNEL` fait rendre des cartes PORTRAIT par Home Assistant :
+            # un logo de chaîne, large et court, y est recadré et perd ses bords (capture
+            # utilisateur du 2026-08-05). `VIDEO` donne des cartes carrées, bien plus proches
+            # du format d'un logo.
+            children_media_class=MediaClass.VIDEO,
             children=children,
         )
 
