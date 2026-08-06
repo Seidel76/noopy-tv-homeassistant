@@ -58,6 +58,12 @@ _BROWSE_SERIES = "series"
 _BROWSE_EPISODES = "episodes"
 
 
+def _order_of(channel: dict) -> int:
+    """Rang de la chaîne dans la playlist. Les entrées sans rang partent à la fin."""
+    value = channel.get("order")
+    return value if isinstance(value, int) else 10**9
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -662,9 +668,16 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         )
 
     def _browse_channel_categories(self) -> BrowseMedia:
-        categories = sorted(
-            {ch.get("category") for ch in self._channels().values() if ch.get("category")}
-        )
+        # Ordre playlist : une catégorie se range à la position de sa première chaîne.
+        first_seen: dict[str, int] = {}
+        for channel in self._channels().values():
+            category = channel.get("category")
+            if not category:
+                continue
+            position = _order_of(channel)
+            if category not in first_seen or position < first_seen[category]:
+                first_seen[category] = position
+        categories = sorted(first_seen, key=lambda name: (first_seen[name], name))
         return BrowseMedia(
             media_class=MediaClass.DIRECTORY,
             media_content_id=_BROWSE_CHANNELS,
@@ -687,6 +700,13 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         )
 
     def _browse_channels_in_category(self, category: str) -> BrowseMedia:
+        in_category = [
+            (channel_id, channel)
+            for channel_id, channel in self._channels().items()
+            if channel.get("category") == category and is_channel_name_valid(channel.get("name"))
+        ]
+        in_category.sort(key=lambda item: (_order_of(item[1]), str(item[1].get("name", ""))))
+
         children = [
             BrowseMedia(
                 media_class=MediaClass.CHANNEL,
@@ -701,10 +721,11 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                     else None
                 ),
             )
-            for channel_id, channel in self._channels().items()
-            if channel.get("category") == category and is_channel_name_valid(channel.get("name"))
+            for channel_id, channel in in_category
         ]
-        children.sort(key=lambda item: item.title)
+        # ⚠️ Ordre de la PLAYLIST, pas alphabétique : c'est l'ordre que l'utilisateur a
+        # arrangé et celui qu'il retrouve dans l'app. Le champ `order` est fourni par
+        # /api/v1/channels (TF1=0, FRANCE 2=1, …).
         return BrowseMedia(
             media_class=MediaClass.DIRECTORY,
             media_content_id=f"{_BROWSE_CHANNELS}/{category}",
@@ -778,11 +799,17 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                     ),
                 )
             )
+        # ⚠️ Le catalogue VOD de l'app est servi depuis ce qu'elle a en mémoire : une
+        # catégorie jamais ouverte sur le téléviseur revient vide. On le dit, plutôt que
+        # d'afficher un dossier muet qui ressemble à un bug.
+        name = str(category.get("categoryName", ""))
+        title = name if children else f"{name} — ouvrez-la une fois sur le téléviseur"
+
         return BrowseMedia(
             media_class=MediaClass.DIRECTORY,
             media_content_id=f"{kind}/{category_id}",
             media_content_type="",
-            title=str(category.get("categoryName", "")),
+            title=title,
             can_play=False,
             can_expand=True,
             children_media_class=MediaClass.MOVIE if is_movies else MediaClass.TV_SHOW,

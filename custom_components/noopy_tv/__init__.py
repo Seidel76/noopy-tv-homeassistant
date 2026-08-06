@@ -193,7 +193,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     _LOGGER.info(
-        "OneTV v4.5.0 configuré: %s:%d (scan=%ss)",
+        "OneTV v4.5.1 configuré: %s:%d (scan=%ss)",
         entry.data[CONF_HOST],
         entry.data.get(CONF_PORT, DEFAULT_PORT),
         int(scan_interval.total_seconds()),
@@ -342,12 +342,22 @@ class NoopyTVEventListener:
             self._task = None
 
     def _set_poll_interval(self, interval: timedelta) -> None:
-        if self._coordinator.update_interval == interval:
-            return
-        try:
-            self._coordinator.update_interval = interval
-        except Exception:  # pragma: no cover - dépend de la version de HA
-            _LOGGER.debug("OneTV: impossible d'ajuster l'intervalle de polling", exc_info=True)
+        """⚠️ NE FAIT PLUS RIEN — conservé pour ne pas disperser les appelants.
+
+        Muter `coordinator.update_interval` DÉSARME le minuteur de rafraîchissement et ne le
+        réarme que s'il existe déjà des écouteurs. Or le flux SSE se connecte pendant
+        `async_setup_entry`, donc AVANT que les entités ne soient créées : la liste
+        d'écouteurs est vide, le minuteur est annulé et plus rien ne le relance.
+
+        Symptôme observé le 2026-08-05 : plus aucun relevé périodique, seulement ceux
+        déclenchés par un événement SSE — c'est-à-dire au zap. Pendant un film, l'état ne
+        bougeait donc plus du tout, et « la progression ne s'actualise jamais ».
+
+        On garde simplement l'intervalle choisi par l'utilisateur. Le coût est négligeable :
+        les trois endpoints interrogés sont servis depuis des caches pré-encodés, hors du
+        thread principal de l'app (0,015 à 0,039 s par cycle, mesuré).
+        """
+        return
 
     @property
     def connected(self) -> bool:
@@ -362,7 +372,6 @@ class NoopyTVEventListener:
         chaîne est déjà en cours), donc `snapshot` peut ne jamais arriver.
         """
         self._connected = True
-        self._set_poll_interval(timedelta(seconds=SSE_FALLBACK_SCAN_INTERVAL_SECONDS))
 
     @callback
     def _on_event(self, event_name: str, _payload: dict[str, Any]) -> None:
