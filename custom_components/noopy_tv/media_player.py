@@ -951,6 +951,12 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             content_id = str(entry.get("id", ""))
             if not content_id:
                 continue
+            # Les programmes de replay commencés n'ont pas de commande de relance dans le
+            # protocole : leur identifiant `url:<flux>_<début>` n'est ni un film ni un
+            # épisode. Une version récente de l'application ne les envoie plus ; on les
+            # écarte aussi ici pour les autres.
+            if entry.get("contentType") == "catchup" or content_id.startswith("url:"):
+                continue
             if (series_key := entry.get("seriesId")) is not None:
                 key = f"s:{series_key}"
             elif (tmdb_key := entry.get("tmdbId")) is not None:
