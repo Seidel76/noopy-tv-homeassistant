@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from urllib.parse import quote
+
 import aiohttp
 
 _LOGGER = logging.getLogger(__name__)
@@ -343,6 +345,37 @@ class NoopyTVAPI:
             _LOGGER.debug("get_series_episodes(%s) failed: %s", series_id, err)
             return False, []
         return bool(data.get("loading")), data.get("episodes", []) or []
+
+    async def get_vod_category(self, is_movies: bool, category_id: str) -> tuple[bool, list[dict[str, Any]]]:
+        """Contenu d'une catégorie VOD (app >= 2026-08). Retourne `(loading, items)`.
+
+        L'app ne garde en mémoire que les catégories déjà ouvertes sur le téléviseur : la
+        première demande déclenche le chargement depuis sa base et répond `loading`, on
+        rappelle ensuite. Un serveur plus ancien renvoie 404 → `(False, [])`.
+        """
+        kind = "movies" if is_movies else "series"
+        try:
+            data = await self._request(f"/api/v1/{kind}/{quote(category_id, safe='')}", timeout=15)
+        except NoopyTVAPIError as err:
+            _LOGGER.debug("get_vod_category(%s, %s) failed: %s", kind, category_id, err)
+            return False, []
+        return bool(data.get("loading")), data.get("items", []) or []
+
+    async def get_favorites(self) -> list[dict[str, Any]]:
+        """Chaînes favorites (app >= 2026-08)."""
+        try:
+            data = await self._request("/api/v1/favorites", timeout=10)
+        except NoopyTVAPIError:
+            return []
+        return data.get("channels", []) or []
+
+    async def get_continue_watching(self) -> list[dict[str, Any]]:
+        """Films et épisodes commencés, du plus récent au plus ancien (app >= 2026-08)."""
+        try:
+            data = await self._request("/api/v1/continue-watching", timeout=10)
+        except NoopyTVAPIError:
+            return []
+        return data.get("items", []) or []
 
     async def listen_events(
         self,

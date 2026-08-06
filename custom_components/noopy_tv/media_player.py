@@ -56,6 +56,8 @@ _BROWSE_CHANNELS = "channels"
 _BROWSE_MOVIES = "movies"
 _BROWSE_SERIES = "series"
 _BROWSE_EPISODES = "episodes"
+_BROWSE_FAVORITES = "favorites"
+_BROWSE_RESUME = "resume"
 
 
 def _order_of(channel: dict) -> int:
@@ -614,6 +616,10 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
     ) -> BrowseMedia:
         if media_content_id in (None, _BROWSE_ROOT):
             return self._browse_root()
+        if media_content_id == _BROWSE_FAVORITES:
+            return await self._browse_favorites()
+        if media_content_id == _BROWSE_RESUME:
+            return await self._browse_resume()
         if media_content_id == _BROWSE_CHANNELS:
             return self._browse_channel_categories()
         if media_content_id.startswith(f"{_BROWSE_CHANNELS}/"):
@@ -640,6 +646,23 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             can_expand=True,
             children_media_class=MediaClass.DIRECTORY,
             children=[
+                # En tête : ce qu'on veut atteindre en un geste.
+                BrowseMedia(
+                    media_class=MediaClass.DIRECTORY,
+                    media_content_id=_BROWSE_RESUME,
+                    media_content_type="",
+                    title="Reprendre",
+                    can_play=False,
+                    can_expand=True,
+                ),
+                BrowseMedia(
+                    media_class=MediaClass.DIRECTORY,
+                    media_content_id=_BROWSE_FAVORITES,
+                    media_content_type="",
+                    title="Favoris",
+                    can_play=False,
+                    can_expand=True,
+                ),
                 BrowseMedia(
                     media_class=MediaClass.DIRECTORY,
                     media_content_id=_BROWSE_CHANNELS,
@@ -780,7 +803,15 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             raise HomeAssistantError(f"Catégorie introuvable: {category_id}")
 
         is_movies = kind == _BROWSE_MOVIES
-        items = category.get("movies" if is_movies else "series", []) or []
+        # ⚠️ On n'utilise PAS la liste embarquée dans `/api/v1/movies` : elle ne contient que
+        # ce que l'app a en mémoire. L'endpoint par catégorie déclenche le chargement depuis
+        # sa base et répond « en cours » la première fois — d'où le second appel.
+        loading, items = await self._api.get_vod_category(is_movies, category_id)
+        if loading and not items:
+            await asyncio.sleep(1.5)
+            _, items = await self._api.get_vod_category(is_movies, category_id)
+        if not items:
+            items = category.get("movies" if is_movies else "series", []) or []
         children = []
         for item in items:
             item_id = str(item.get("id", ""))
@@ -855,5 +886,91 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             can_play=False,
             can_expand=True,
             children_media_class=MediaClass.EPISODE,
+            children=children,
+        )
+
+    async def _browse_favorites(self) -> BrowseMedia:
+        """Chaînes favorites, dans l'ordre de la playlist."""
+        favorites = await self._api.get_favorites()
+        children = [
+            BrowseMedia(
+                media_class=MediaClass.VIDEO,
+                media_content_id=str(channel.get("id", "")),
+                media_content_type=MediaType.CHANNEL,
+                title=str(channel.get("name", "")),
+                can_play=True,
+                can_expand=False,
+                thumbnail=(
+                    self._proxy_image_url(str(channel["logo_url"]), size=200)
+                    if channel.get("logo_url")
+                    else None
+                ),
+            )
+            for channel in favorites
+            if channel.get("id")
+        ]
+        return BrowseMedia(
+            media_class=MediaClass.DIRECTORY,
+            media_content_id=_BROWSE_FAVORITES,
+            media_content_type="",
+            title="Favoris" if children else "Favoris (aucune chaîne)",
+            can_play=False,
+            can_expand=True,
+            children_media_class=MediaClass.VIDEO,
+            children=children,
+        )
+
+    async def _browse_resume(self) -> BrowseMedia:
+        """Films et épisodes commencés, du plus récent au plus ancien.
+
+        Le titre porte l'avancement : sans lui, deux épisodes d'une même série seraient
+        indiscernables dans la grille.
+        """
+        entries = await self._api.get_continue_watching()
+        children = []
+        for entry in entries:
+            content_id = str(entry.get("id", ""))
+            if not content_id:
+                continue
+            is_episode = entry.get("contentType") == "episode"
+            label = str(entry.get("title", ""))
+            season, episode = entry.get("season"), entry.get("episode")
+            if is_episode and season is not None and episode is not None:
+                label = f"{label} · S{int(season):02d}E{int(episode):02d}"
+            percent = entry.get("progressPercent")
+            if isinstance(percent, int):
+                label = f"{label} — {percent} %"
+
+            if is_episode and entry.get("seriesId") is not None:
+                media_id = f"{entry['seriesId']}/{season or 1}/{episode or 1}"
+                media_type = MediaType.EPISODE
+            else:
+                media_id = content_id
+                media_type = MediaType.MOVIE
+
+            children.append(
+                BrowseMedia(
+                    media_class=MediaClass.EPISODE if is_episode else MediaClass.MOVIE,
+                    media_content_id=media_id,
+                    media_content_type=media_type,
+                    title=label,
+                    can_play=True,
+                    can_expand=False,
+                    thumbnail=(
+                        self._proxy_image_url(str(entry["posterURL"]), size=300)
+                        if entry.get("posterURL")
+                        else None
+                    ),
+                )
+            )
+
+        return BrowseMedia(
+            media_class=MediaClass.DIRECTORY,
+            media_content_id=_BROWSE_RESUME,
+            media_content_type="",
+            title="Reprendre" if children else "Reprendre (rien en cours)",
+            can_play=False,
+            can_expand=True,
+            children_media_class=MediaClass.MOVIE,
             children=children,
         )

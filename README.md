@@ -46,7 +46,7 @@
 | Next / Previous track | Switches to the next/previous channel |
 | Seek | Only for bounded content — live streams report no duration |
 | Source | The full channel list |
-| Browse media | Channels by category, movies, TV shows |
+| Browse media | Resume, favorites, channels by category, movies, TV shows |
 | Turn on | Launches the app through the paired Apple TV |
 | Turn off | Stops playback (tvOS gives no way to quit an app remotely) |
 
