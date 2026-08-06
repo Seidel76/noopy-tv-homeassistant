@@ -17,11 +17,23 @@ capable d'aller chercher n'importe quelle adresse.
 from __future__ import annotations
 
 import logging
-from urllib.parse import quote
+from datetime import timedelta
+from urllib.parse import quote, urlparse
 
 from aiohttp import web
 
-from homeassistant.components.http import HomeAssistantView, async_sign_path
+from homeassistant.components.http.const import KEY_AUTHENTICATED
+
+from homeassistant.components.http import HomeAssistantView
+
+# `async_sign_path` vit dans le sous-module `auth` et n'est PAS ré-exporté par le package
+# `homeassistant.components.http` : l'importer depuis la racine lève un ImportError qui
+# empêche le chargement de TOUTE l'intégration. Le repli couvre les versions qui l'y
+# exposeraient un jour.
+try:
+    from homeassistant.components.http.auth import async_sign_path
+except ImportError:  # pragma: no cover
+    from homeassistant.components.http import async_sign_path  # type: ignore[attr-defined]
 from homeassistant.core import HomeAssistant, callback
 
 from .images import async_square_png
@@ -44,9 +56,18 @@ class NoopyTVThumbnailView(HomeAssistantView):
     requires_auth = False
 
     async def get(self, request: web.Request) -> web.Response:
+        # `requires_auth = False` désactive le contrôle du middleware : sans cette vérification
+        # explicite, l'URL serait un téléchargeur ouvert utilisable contre n'importe quelle
+        # adresse joignable depuis Home Assistant. Le middleware pose ce drapeau quand la
+        # signature de l'URL est valide.
+        if not request.get(KEY_AUTHENTICATED, False):
+            return web.Response(status=401, text="signature absente ou expirée")
+
         url = request.query.get("url")
         if not url:
             return web.Response(status=400, text="url manquante")
+        if urlparse(url).scheme not in ("http", "https"):
+            return web.Response(status=400, text="schéma non autorisé")
 
         hass: HomeAssistant = request.app["hass"]
         data = await async_square_png(hass, url)
@@ -69,7 +90,8 @@ def squared_thumbnail_url(hass: HomeAssistant, raw_url: str) -> str | None:
         return async_sign_path(
             hass,
             f"{THUMBNAIL_URL}?url={quote(raw_url, safe='')}",
-            expiration=_SIGNATURE_LIFETIME_SECONDS,
+            # `expiration` attend un timedelta, pas un nombre de secondes.
+            expiration=timedelta(seconds=_SIGNATURE_LIFETIME_SECONDS),
         )
     except Exception:  # noqa: BLE001 - une vignette ne doit jamais casser la navigation
         _LOGGER.debug("Signature de vignette impossible", exc_info=True)
