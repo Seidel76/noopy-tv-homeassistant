@@ -18,6 +18,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import NoopyTVAPI, NoopyTVAPIError, NoopyTVConnectionError
+from .thumbnails import NoopyTVThumbnailView
 from .const import (
     CONF_API_KEY,
     CONF_APPLE_TV_ENTITY,
@@ -70,6 +71,13 @@ SEND_COMMAND_SCHEMA = vol.Schema(
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
+
+    # Vue des vignettes : une seule pour toute l'intégration, quel que soit le nombre
+    # d'appareils. `register_view` est idempotent sur le nom, mais on garde un drapeau pour
+    # ne pas le rejouer à chaque entrée.
+    if not hass.data[DOMAIN].get("_thumbnail_view"):
+        hass.http.register_view(NoopyTVThumbnailView())
+        hass.data[DOMAIN]["_thumbnail_view"] = True
 
     # ⚡️ v3.0.0 cleanup : supprimer les anciennes entities `sensor.<entry>_channel_<id>`
     # (1 par chaîne, créait 1000+ entités pour grosses playlists). Désormais un seul
@@ -193,7 +201,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     _LOGGER.info(
-        "OneTV v4.6.0 configuré: %s:%d (scan=%ss)",
+        "OneTV v4.7.0 configuré: %s:%d (scan=%ss)",
         entry.data[CONF_HOST],
         entry.data.get(CONF_PORT, DEFAULT_PORT),
         int(scan_interval.total_seconds()),

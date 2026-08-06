@@ -46,6 +46,7 @@ from .const import (
 from .device import build_device_info
 from .images import async_square_png, proxy_image_url
 from .naming import is_channel_name_valid
+from .thumbnails import squared_thumbnail_url
 from .playback import infer_content_type
 
 _LOGGER = logging.getLogger(__name__)
@@ -284,8 +285,19 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         return self._last_position_updated
 
     def _proxy_image_url(self, raw_url: str, size: int = 400) -> str:
-        """Passe l'image par le proxy AUTHENTIFIÉ de l'app (cf. images.proxy_image_url)."""
+        """URL du visuel pour la jaquette du lecteur (servie en octets par l'entité)."""
         return proxy_image_url(self._entry, raw_url, size)
+
+    def _thumbnail(self, raw_url: str | None) -> str | None:
+        """Vignette du navigateur, MISE AU CARRÉ.
+
+        Home Assistant recadre les vignettes au centre : un logo large y perdrait ses bords.
+        On passe donc par notre vue, qui complète l'image en carré. Repli sur l'URL brute si
+        la signature échoue — au pire le logo est recadré, comme avant.
+        """
+        if not raw_url:
+            return None
+        return squared_thumbnail_url(self.hass, str(raw_url)) or str(raw_url)
 
     @property
     def media_image_url(self) -> str | None:
@@ -446,6 +458,14 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         Nécessite `select_source` sur l'Apple TV : l'app ne peut pas se lancer elle-même
         puisque son serveur HTTP ne tourne que quand elle est déjà ouverte.
         """
+        # ⚠️ Si l'app RÉPOND DÉJÀ, elle est lancée : ne rien faire de plus. Refaire un
+        # `select_source` sur une app au premier plan la fait re-présenter par tvOS, ce qui
+        # relance l'aperçu de la page affichée — un aperçu vidéo démarrait donc à chaque appui
+        # sur le bouton marche/arrêt, quelle que soit la page (constaté le 2026-08-07).
+        if self._reachable():
+            await self.coordinator.async_request_refresh()
+            return
+
         entity_id = self._apple_tv_entity()
         if not entity_id:
             raise HomeAssistantError(
@@ -738,11 +758,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                 title=str(channel.get("name", "")),
                 can_play=True,
                 can_expand=False,
-                thumbnail=(
-                    self._proxy_image_url(str(channel["logo_url"]), size=200)
-                    if channel.get("logo_url")
-                    else None
-                ),
+                thumbnail=self._thumbnail(channel.get("logo_url")),
             )
             for channel_id, channel in in_category
         ]
@@ -827,11 +843,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                     # lançait « au S01E01 » faute d'endpoint pour les lister.
                     can_play=is_movies,
                     can_expand=not is_movies,
-                    thumbnail=(
-                        self._proxy_image_url(str(item["posterURL"]), size=300)
-                        if item.get("posterURL")
-                        else None
-                    ),
+                    thumbnail=self._thumbnail(item.get("posterURL")),
                 )
             )
         # ⚠️ Le catalogue VOD de l'app est servi depuis ce qu'elle a en mémoire : une
@@ -900,11 +912,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                 title=str(channel.get("name", "")),
                 can_play=True,
                 can_expand=False,
-                thumbnail=(
-                    self._proxy_image_url(str(channel["logo_url"]), size=200)
-                    if channel.get("logo_url")
-                    else None
-                ),
+                thumbnail=self._thumbnail(channel.get("logo_url")),
             )
             for channel in favorites
             if channel.get("id")
@@ -956,11 +964,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                     title=label,
                     can_play=True,
                     can_expand=False,
-                    thumbnail=(
-                        self._proxy_image_url(str(entry["posterURL"]), size=300)
-                        if entry.get("posterURL")
-                        else None
-                    ),
+                    thumbnail=self._thumbnail(entry.get("posterURL")),
                 )
             )
 
