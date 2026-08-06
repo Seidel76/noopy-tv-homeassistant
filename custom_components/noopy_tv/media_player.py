@@ -941,10 +941,25 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         """
         entries = await self._api.get_continue_watching()
         children = []
+        # ⚠️ Le même film présent dans plusieurs playlists produit une entrée par copie, et une
+        # série une entrée par épisode commencé : sans réduction, le même titre s'affichait
+        # quatre fois de suite. Les versions récentes de l'application réduisent déjà la liste,
+        # on refait le travail ici pour les autres — les entrées arrivent triées du plus récent
+        # au plus ancien, donc la première rencontrée est la bonne.
+        seen: set[str] = set()
         for entry in entries:
             content_id = str(entry.get("id", ""))
             if not content_id:
                 continue
+            if (series_key := entry.get("seriesId")) is not None:
+                key = f"s:{series_key}"
+            elif (tmdb_key := entry.get("tmdbId")) is not None:
+                key = f"m:{tmdb_key}"
+            else:
+                key = f"t:{str(entry.get('title', '')).lower()}"
+            if key in seen:
+                continue
+            seen.add(key)
             is_episode = entry.get("contentType") == "episode"
             label = str(entry.get("title", ""))
             season, episode = entry.get("season"), entry.get("episode")
