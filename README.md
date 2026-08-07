@@ -11,167 +11,177 @@
 </p>
 
 <p align="center">
-  Control your OneTV app directly from Home Assistant with automatic discovery.
+  Control the OneTV Connect app on your Apple TV from Home Assistant — with automatic discovery.
 </p>
 
 ---
 
-## Features
+## What you get
 
-- **Zero Configuration** — Automatic Bonjour/mDNS discovery
-- **Media Player Entity** — Full transport controls, artwork, progress bar, source list,
-  and media browser for channels, movies and TV shows
-- **Instant Updates** — Subscribes to the app's SSE event stream, so a channel change shows
-  up in Home Assistant in well under a second (polling stays as a safety net)
-- **App Launching** — Pair your Apple TV entity and `media_player.turn_on` starts OneTV when
+- **Zero configuration** — the app is found over Bonjour/mDNS; you only confirm it
+- **A real media player** — transport controls, artwork, progress, channel list, media browser
+- **Instant updates** — the app pushes an event stream, so a channel change shows up in well
+  under a second; polling stays as a safety net
+- **Live EPG** — what is on now, with a progress sensor (percent, title, start, end, minutes
+  left, description)
+- **Movie and episode progress** — the same sensor reports playback position during VOD
+- **App launching** — pair your Apple TV entity and `media_player.turn_on` starts OneTV when
   the app is closed
-- **Live EPG** — Current program with a progress sensor (percentage elapsed, title, start,
-  end, remaining minutes, description)
-- **Channel artwork** — the player serves the current channel logo (or the movie/episode
-  poster) squared, so Home Assistant's circular thumbnails no longer crop it
-- **TMDB metadata** — overview, rating, year, genres, season and episode numbers, TMDB and
-  IMDb ids, exposed as attributes of the player entity
-- **Track selection** — Audio and subtitle track selectors for the current content
-- **Buttons** — Return to live, refresh
-- **Diagnostics** — Downloadable from the integration page, with the API key redacted
-- **Channel Logos** — Displayed via local proxy
-- **Category Selectors** — One selector per category for quick access
-- **Services** — `play_channel`, `play_movie`, `play_episode`, `send_command`, `refresh`
+- **Track selection** — audio and subtitle pickers for whatever is playing
+- **Diagnostics** — downloadable from the integration page, with the API key redacted
 
-### Media player controls
+### Media player
 
 | Control | Notes |
 | --- | --- |
 | Play / Pause / Stop | |
-| Next / Previous track | Switches to the next/previous channel |
-| Seek | Only for bounded content — live streams report no duration |
-| Source | The full channel list |
+| Next / Previous track | Moves to the next or previous channel |
+| Seek | Bounded content only — a live stream reports no duration |
+| Source | The full channel list, in playlist order |
 | Browse media | Resume, favorites, channels by category, movies, TV shows |
 | Turn on | Launches the app through the paired Apple TV |
-| Turn off | Stops playback (tvOS gives no way to quit an app remotely) |
+| Turn off | Stops playback (tvOS offers no way to quit an app remotely) |
 
-> **No volume controls.** The app's command handler does not implement `setVolume`,
-> `adjustVolume` or `toggleMute`, so the integration deliberately does not advertise them
-> rather than showing a slider that does nothing. Control volume on your TV or AV receiver.
+> **No volume controls.** The app's command handler implements neither `setVolume` nor
+> `adjustVolume` nor `toggleMute`, so the integration does not advertise them rather than
+> showing a slider that does nothing. Use your TV or AV receiver.
 
-### Launching the app
+Browser thumbnails are served by the integration itself, padded to a square, because Home
+Assistant crops them to a circle — a channel logo would otherwise lose its edges.
 
-When OneTV is closed, its HTTP server is down and the integration cannot reach it — the app
-has no way to start itself. Pair an Apple TV so Home Assistant can launch it:
+### Entities
 
-**Settings → Devices & Services → OneTV → Configure → Paired Apple TV**
+| Entity | What it is |
+| --- | --- |
+| `media_player.onetv` | The player: state, artwork, transport, source list, browser |
+| `sensor.onetv_lecture_en_cours` | Channel, movie or episode currently playing |
+| `sensor.onetv_progression_du_programme` | Percent elapsed — the live programme, or the movie |
+| `sensor.onetv_statistiques` | Channel and category counts |
+| `select.onetv_toutes_les_chaines` | Every channel, plus one selector per category |
+| `select.onetv_piste_audio` / `..._sous_titres` | Audio and subtitle tracks |
+| `binary_sensor.onetv_application_accessible` | Whether the app answers right now |
+| `button.onetv_retour_au_direct` | Back to live — shown only when you are behind |
+| `button.onetv_rafraichir` | Force a data refresh |
 
-The app name must match the entry in the Apple TV's source list exactly (default:
-`OneTV Connect`). Once paired, `media_player.turn_on` — and any `play_media` /
-`select_source` call made while the app is closed — launches it first, then plays.
-
-The `binary_sensor.*_application_accessible` entity reports whether the app is currently
-reachable. Prefer it over checking whether other entities are `unavailable`, and note that
-the Apple TV's own `app_name` attribute keeps reporting OneTV even after the app has been
-suspended.
+Prefer `binary_sensor.*_application_accessible` over checking whether other entities are
+`unavailable`. Note that the Apple TV's own `app_name` attribute keeps reporting OneTV long
+after the app has been suspended.
 
 ## Requirements
 
-- OneTV app running on Apple TV (tvOS)
-- Home Assistant integration enabled in OneTV settings
+- The OneTV Connect app running on an Apple TV (tvOS)
+- The Home Assistant integration enabled in the app's settings
 - Both devices on the same local network
 
 ## Installation
 
-### HACS (Recommended)
+### HACS
 
-1. Open HACS → ⋮ → **Custom repositories**
+1. HACS → ⋮ → **Custom repositories**
 2. Add `https://github.com/Seidel76/noopy-tv-homeassistant` as **Integration**
-3. Search for **OneTV** and install
-4. Restart Home Assistant
-5. Add via **Settings → Devices & Services → Add Integration**
+3. Search for **OneTV**, install, restart Home Assistant
+4. The Apple TV is usually discovered on its own; otherwise **Settings → Devices & Services
+   → Add Integration**
 
 ### Manual
 
-Copy `custom_components/noopy_tv` to your Home Assistant `config/custom_components/` directory.
+Copy `custom_components/noopy_tv` into your Home Assistant `config/custom_components/`
+directory and restart.
 
-## Entities
+## Launching the app
 
-| Entity | Description |
-|--------|-------------|
-| `select.noopy_tv_toutes_les_chaines` | All channels selector with current playback |
-| `select.noopy_tv_[category]` | Per-category channel selector |
-| `sensor.noopy_tv_statistiques` | Total channels and categories count |
-| `sensor.noopy_tv_[channel]` | Per-channel sensor with EPG data |
+With OneTV closed its HTTP server is down, and the app cannot start itself. Pair an Apple TV
+so Home Assistant can launch it:
+
+**Settings → Devices & Services → OneTV → Configure → Paired Apple TV**
+
+The app name must match the entry in the Apple TV's source list exactly (default:
+`OneTV Connect`). Once paired, `media_player.turn_on` — and any `play_media` or
+`select_source` issued while the app is closed — launches it first, then plays.
 
 ## Services
 
 ```yaml
-# Change channel
-service: noopy_tv.play_channel
+# Change channel — by name or by id
+action: noopy_tv.play_channel
 data:
   channel_id: "TF1"
 
-# Force refresh
-service: noopy_tv.refresh
+# Play a movie, optionally resuming
+action: noopy_tv.play_movie
+data:
+  movie_id: "1339713"
+  resume_position: 1830
+
+# Play an episode
+action: noopy_tv.play_episode
+data:
+  series_id: "13940"
+  season: 1
+  episode: 8
+
+# Send a raw player command
+action: noopy_tv.send_command
+data:
+  command: pause
+
+# Force a refresh
+action: noopy_tv.refresh
 ```
 
-## Lovelace Examples
+> With several Apple TVs configured, these services act on the most recently loaded one.
+> To target a specific device, use the `media_player` services on its entity instead —
+> `media_player.play_media`, `media_player.select_source`, `media_player.media_pause`.
 
-### Now Playing Card
+## Examples
+
+### Now playing card
 
 ```yaml
 type: vertical-stack
 cards:
-  - type: markdown
-    content: |
-      {% set s = 'select.noopy_tv_toutes_les_chaines' %}
-      {% set ch = state_attr(s, 'current_channel') %}
-      {% set prog = state_attr(s, 'current_program') %}
-      {% set pct = state_attr(s, 'progress_percent') | float(0) | round %}
-      {% if ch %}
-      ## 📺 {{ ch }}
-      **{{ prog }}** — {{ pct }}%
-      {% else %}
-      *No playback*
-      {% endif %}
+  - type: media-control
+    entity: media_player.onetv
   - type: entities
     entities:
-      - select.noopy_tv_toutes_les_chaines
+      - entity: sensor.onetv_progression_du_programme
+        name: Progress
+      - entity: select.onetv_toutes_les_chaines
+        name: Channel
 ```
 
-### Automation Example
+### Put the TV on when you get home
 
 ```yaml
 automation:
-  - alias: "TV Program Notification"
-    trigger:
-      - platform: state
-        entity_id: sensor.noopy_tv_tf1
-    action:
-      - service: notify.mobile_app
+  - alias: "TV on arrival"
+    triggers:
+      - trigger: zone
+        entity_id: person.me
+        zone: zone.home
+        event: enter
+    actions:
+      - action: media_player.turn_on
+        target:
+          entity_id: media_player.onetv
+      - delay: "00:00:10"
+      - action: media_player.select_source
+        target:
+          entity_id: media_player.onetv
         data:
-          title: "Now on TF1"
-          message: "{{ states('sensor.noopy_tv_tf1') }}"
+          source: "TF1"
 ```
-
-## API Reference
-
-OneTV exposes a local REST API at `http://[apple-tv-ip]:8765`:
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/v1/info` | GET | Server information |
-| `/api/v1/channels` | GET | All channels with EPG |
-| `/api/v1/categories` | GET | Category list |
-| `/api/v1/player` | GET | Current playback status |
-| `/api/v1/player/play` | POST | Change channel |
-| `/api/v1/proxy/image` | GET | Image proxy for logos |
 
 ## Troubleshooting
 
-| Issue | Solution |
-|-------|----------|
-| Not discovered | Ensure OneTV is open and HA integration is enabled |
-| Entity unavailable | App closed or Apple TV is sleeping |
-| Connection refused | Check both devices are on the same network |
+| Symptom | What to check |
+| --- | --- |
+| Not discovered | The app is open and its Home Assistant integration is enabled |
+| Entities unavailable | The app is closed, or the Apple TV is asleep |
+| Connection refused | Both devices are on the same network and subnet |
+| Turn on does nothing | No Apple TV paired — see **Launching the app** above |
 
-Enable debug logging:
+Debug logging:
 
 ```yaml
 logger:
@@ -181,4 +191,4 @@ logger:
 
 ## License
 
-MIT License
+MIT — see [LICENSE](LICENSE).
