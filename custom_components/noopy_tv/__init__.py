@@ -15,6 +15,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.loader import async_get_integration
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import NoopyTVAPI, NoopyTVAPIError, NoopyTVConnectionError
@@ -44,6 +45,10 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform(name) for name in PLATFORM_NAMES]
+
+# Clé de `hass.data` propre à la vue HTTP — volontairement HORS de `hass.data[DOMAIN]`,
+# qui ne doit contenir que des entrées de configuration (cf. `async_unload_entry`).
+THUMBNAIL_VIEW_KEY = f"{DOMAIN}_thumbnail_view"
 
 PLAY_MOVIE_SCHEMA = vol.Schema(
     {
@@ -75,9 +80,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Vue des vignettes : une seule pour toute l'intégration, quel que soit le nombre
     # d'appareils. `register_view` est idempotent sur le nom, mais on garde un drapeau pour
     # ne pas le rejouer à chaque entrée.
-    if not hass.data[DOMAIN].get("_thumbnail_view"):
+    # ⚠️ Le drapeau vit dans SA PROPRE clé : rangé dans `hass.data[DOMAIN]`, il cohabitait
+    # avec les entrées et rendait `if not hass.data[DOMAIN]` toujours faux au déchargement —
+    # les services n'étaient donc jamais retirés, même après suppression du dernier appareil.
+    if not hass.data.get(THUMBNAIL_VIEW_KEY):
         hass.http.register_view(NoopyTVThumbnailView())
-        hass.data[DOMAIN]["_thumbnail_view"] = True
+        hass.data[THUMBNAIL_VIEW_KEY] = True
 
     # ⚡️ v3.0.0 cleanup : supprimer les anciennes entities `sensor.<entry>_channel_<id>`
     # (1 par chaîne, créait 1000+ entités pour grosses playlists). Désormais un seul
@@ -93,16 +101,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         api_key=entry.data.get(CONF_API_KEY),
     )
 
+    # ⚠️ On ne renonce PAS quand l'application ne répond pas. C'est l'état NORMAL d'un
+    # Apple TV en veille, et c'est précisément la situation où l'on veut agir : sans entités,
+    # `media_player.turn_on` n'existe pas, donc l'automatisation censée lancer l'application
+    # au retour à la maison ne peut rien faire. Les entités se créent quand même — elles
+    # apparaissent indisponibles jusqu'au premier contact, sauf le lecteur, qui reste
+    # utilisable pour allumer. Une erreur ici serait un échec définitif de configuration.
     try:
         if not await api.test_connection():
-            _LOGGER.error("Impossible de se connecter à OneTV")
-            return False
-    except NoopyTVConnectionError as err:
-        _LOGGER.error("Erreur de connexion: %s", err)
-        return False
+            _LOGGER.warning("OneTV injoignable pour l'instant — configuration poursuivie")
     except NoopyTVAPIError as err:
-        _LOGGER.error("Erreur API: %s", err)
-        return False
+        _LOGGER.warning("OneTV injoignable pour l'instant (%s) — configuration poursuivie", err)
 
     # Persist the api_key the server may have advertised via /api/v1/info
     # so subsequent restarts don't need to re-fetch it.
@@ -116,7 +125,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     coordinator = NoopyTVDataUpdateCoordinator(hass, api=api, update_interval=scan_interval)
 
-    await coordinator.async_config_entry_first_refresh()
+    # `async_config_entry_first_refresh` LÈVE `ConfigEntryNotReady` si l'application ne
+    # répond pas — ce qui annulerait la configuration et supprimerait les entités. On fait
+    # donc un rafraîchissement ordinaire : l'échec est enregistré dans le coordinateur, les
+    # entités se créent, et le cycle suivant les remplira.
+    await coordinator.async_refresh()
 
     # ⚡️ v4.0.0 — écoute SSE : le serveur tvOS pousse un event à chaque zap (<50 ms).
     # Tant que le flux tient, le polling retombe à un simple filet de sécurité.
@@ -200,8 +213,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
+    # Version lue dans le manifeste : écrite en dur, elle finissait par mentir d'une
+    # version à l'autre.
+    integration = await async_get_integration(hass, DOMAIN)
     _LOGGER.info(
-        "OneTV v4.7.4 configuré: %s:%d (scan=%ss)",
+        "OneTV v%s configuré: %s:%d (scan=%ss)",
+        integration.version,
         entry.data[CONF_HOST],
         entry.data.get(CONF_PORT, DEFAULT_PORT),
         int(scan_interval.total_seconds()),
