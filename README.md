@@ -41,10 +41,12 @@
 | Browse media | Resume, favorites, channels by category, movies, TV shows |
 | Turn on | Launches the app through the paired Apple TV |
 | Turn off | Stops playback (tvOS offers no way to quit an app remotely) |
+| Volume / Mute | The app's playback gain — see below |
 
-> **No volume controls.** The app's command handler implements neither `setVolume` nor
-> `adjustVolume` nor `toggleMute`, so the integration does not advertise them rather than
-> showing a slider that does nothing. Use your TV or AV receiver.
+> **Volume is the app's gain, not your TV's.** A tvOS app has no public API for the
+> television's volume: that belongs to the TV or AV receiver over HDMI-CEC, and to the Siri
+> Remote. The slider, the ± steps and mute all act on OneTV's own playback level — pulling it
+> to zero silences the app without touching the receiver.
 
 Browser thumbnails are served by the integration itself, padded to a square, because Home
 Assistant crops them to a circle — a channel logo would otherwise lose its edges.
@@ -124,6 +126,13 @@ data:
 action: noopy_tv.send_command
 data:
   command: pause
+
+# Set the playback gain (0 to 1) — `adjustVolume` takes a signed `delta` instead
+action: noopy_tv.send_command
+data:
+  command: setVolume
+  params:
+    level: 0.4
 
 # Force a refresh
 action: noopy_tv.refresh

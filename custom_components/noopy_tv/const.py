@@ -73,8 +73,8 @@ SERVICE_PLAY_EPISODE = "play_episode"
 SERVICE_SEND_COMMAND = "send_command"
 
 # Commandes acceptées par `noopy_tv.send_command`. Liste calquée sur le switch de
-# `AppModel.handleRemoteCommand` — ⚠️ setVolume/adjustVolume/toggleMute existent dans
-# RemoteCommand côté app mais ne sont PAS implémentées par ce handler : ne pas les exposer.
+# `AppModel.handleRemoteCommand` : une commande absente de ce switch renverrait un échec,
+# donc rien n'entre ici sans y avoir son `case`.
 SUPPORTED_COMMANDS = [
     "play",
     "pause",
@@ -87,6 +87,11 @@ SUPPORTED_COMMANDS = [
     "setSubtitleTrack",
     "nextChannel",
     "previousChannel",
+    # 🔊 Gain du moteur de lecture (params : `level` 0…1, `delta` signé). Le volume du
+    # téléviseur reste hors de portée d'une app tvOS.
+    "setVolume",
+    "adjustVolume",
+    "toggleMute",
 ]
 
 ATTR_IS_PLAYING = "is_playing"
