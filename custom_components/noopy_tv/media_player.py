@@ -5,16 +5,19 @@ détaillé était pourtant déjà récupéré à chaque tick (`/api/v1/player/st
 jeu de commandes complet (`POST /api/v1/player/command`) n'était jamais appelé. Cette entité
 ne coûte donc AUCUNE requête réseau supplémentaire.
 
-⚠️ Volume volontairement NON exposé : `RemoteCommand` (côté Swift) définit bien
-setVolume/adjustVolume/toggleMute, mais le switch de `AppModel.handleRemoteCommand` — le seul
-handler câblé sur le serveur HTTP via `RootView.executeCommandHandler` — ne les implémente pas.
-Les annoncer donnerait un curseur de volume mort dans l'UI.
+🔊 v4.9.0 — le volume est exposé (curseur, ±, sourdine). `AppModel.handleRemoteCommand`
+implémente désormais `setVolume` / `adjustVolume` / `toggleMute`, et `/api/v1/player/state`
+renvoie `volume` + `isMuted` à chaque tick. C'est le GAIN DU MOTEUR DE LECTURE, pas le volume
+du téléviseur : une app tvOS n'a aucune API publique sur ce dernier, qui reste au téléviseur
+(HDMI-CEC) et à la Siri Remote. Baisser ce curseur à zéro rend donc l'app muette sans toucher
+au volume de l'ampli.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from time import monotonic
 from typing import Any
 from urllib.parse import quote
 
@@ -60,6 +63,13 @@ _BROWSE_EPISODES = "episodes"
 _BROWSE_FAVORITES = "favorites"
 _BROWSE_RESUME = "resume"
 
+# Pas de constante côté app : `adjustVolume` prend un delta libre. 5 % donne un cran fin,
+# cohérent avec la couronne de la montre et les boutons ± de la télécommande iPhone.
+_VOLUME_STEP = 0.05
+
+# Durée pendant laquelle le niveau demandé prime sur celui rapporté par l'app.
+_OPTIMISTIC_WINDOW = 2.5
+
 
 def _order_of(channel: dict) -> int:
     """Rang de la chaîne dans la playlist. Les entrées sans rang partent à la fin."""
@@ -90,6 +100,10 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         self._attr_unique_id = f"{entry.entry_id}_media_player"
         self._last_position: float | None = None
         self._last_position_updated = dt_util.utcnow()
+        # 🔊 Niveau/sourdine tout juste demandés, en attente de confirmation par l'app.
+        self._optimistic_volume: float | None = None
+        self._optimistic_muted: bool | None = None
+        self._optimistic_until: float = 0.0
 
     # ------------------------------------------------------------------ device
 
@@ -146,7 +160,59 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             if self._last_position is None or abs(position - self._last_position) >= 1:
                 self._last_position = float(position)
                 self._last_position_updated = dt_util.utcnow()
+        self._settle_optimistic_volume()
         super()._handle_coordinator_update()
+
+    # ------------------------------------------------------------------ volume
+
+    def _settle_optimistic_volume(self) -> None:
+        """Rend la main à l'app dès qu'elle confirme ce qu'on lui a demandé."""
+        if self._optimistic_volume is None and self._optimistic_muted is None:
+            return
+        ps = self._state_payload()
+        reported = ps.get("volume")
+        if self._optimistic_volume is not None and isinstance(reported, (int, float)):
+            if abs(float(reported) - self._optimistic_volume) < 0.01:
+                self._optimistic_volume = None
+        if self._optimistic_muted is not None and ps.get("isMuted") == self._optimistic_muted:
+            self._optimistic_muted = None
+
+    def _optimistic_expired(self) -> bool:
+        return monotonic() > self._optimistic_until
+
+    def _remember_optimistic(
+        self, volume: float | None = None, muted: bool | None = None
+    ) -> None:
+        """Affiche immédiatement le niveau demandé.
+
+        Le curseur de Home Assistant est piloté par l'état de l'entité : sans cette avance,
+        chaque cran envoyé pendant un glissement revenait à l'ancienne valeur le temps d'un
+        cycle de rafraîchissement, et le curseur sautait en arrière sous le doigt.
+        """
+        self._optimistic_volume = volume
+        self._optimistic_muted = muted
+        self._optimistic_until = monotonic() + _OPTIMISTIC_WINDOW
+        if self.hass is not None:
+            self.async_write_ha_state()
+
+    @property
+    def volume_level(self) -> float | None:
+        """Gain du moteur de lecture (0…1). PAS le volume du téléviseur."""
+        if self._optimistic_volume is not None and not self._optimistic_expired():
+            return self._optimistic_volume
+        value = self._state_payload().get("volume")
+        if isinstance(value, (int, float)):
+            return min(1.0, max(0.0, float(value)))
+        return None
+
+    @property
+    def is_volume_muted(self) -> bool | None:
+        if self._optimistic_muted is not None and not self._optimistic_expired():
+            return self._optimistic_muted
+        muted = self._state_payload().get("isMuted")
+        if muted is None:
+            return None
+        return bool(muted)
 
     # ------------------------------------------------------------------- état
 
@@ -183,6 +249,12 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             | MediaPlayerEntityFeature.PLAY_MEDIA
             | MediaPlayerEntityFeature.BROWSE_MEDIA
             | MediaPlayerEntityFeature.TURN_OFF
+            # 🔊 Gain du moteur de lecture. Annoncé en permanence, comme le reste du
+            # transport : l'app accepte la commande hors lecture (elle mémorise le niveau et
+            # le renvoie dans son état), seul l'effet sonore attend qu'un flux soit monté.
+            | MediaPlayerEntityFeature.VOLUME_SET
+            | MediaPlayerEntityFeature.VOLUME_STEP
+            | MediaPlayerEntityFeature.VOLUME_MUTE
         )
         if self._apple_tv_entity():
             features |= MediaPlayerEntityFeature.TURN_ON
@@ -435,6 +507,41 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
 
     async def async_media_seek(self, position: float) -> None:
         await self._send("seekAbsolute", {"position": float(position)})
+
+    async def async_set_volume_level(self, volume: float) -> None:
+        level = min(1.0, max(0.0, float(volume)))
+        # Côté app, un niveau nul VAUT la sourdine (`applyPlayerVolume` pose `isPlayerMuted`
+        # quand le gain tombe à 0) : on annonce la même chose, sinon l'icône de sourdine
+        # clignoterait le temps que l'état revienne.
+        self._remember_optimistic(volume=level, muted=level == 0)
+        await self._send("setVolume", {"level": level})
+
+    async def async_volume_up(self) -> None:
+        await self._adjust_volume(_VOLUME_STEP)
+
+    async def async_volume_down(self) -> None:
+        await self._adjust_volume(-_VOLUME_STEP)
+
+    async def _adjust_volume(self, delta: float) -> None:
+        # `adjustVolume` sort du mode muet côté app : on l'annonce ici aussi.
+        current = self.volume_level
+        expected = None if current is None else min(1.0, max(0.0, current + delta))
+        self._remember_optimistic(volume=expected, muted=False)
+        await self._send("adjustVolume", {"delta": float(delta)})
+
+    async def async_mute_volume(self, mute: bool) -> None:
+        """Coupe ou rétablit le son.
+
+        ⚠️ L'app n'expose qu'une BASCULE (`toggleMute`, qui restaure le niveau d'avant),
+        alors que Home Assistant demande un état. Envoyer la bascule quand l'état voulu est
+        déjà atteint la ferait repartir dans l'autre sens : on ne l'envoie donc que sur une
+        vraie différence. Si l'app ne rapporte rien (injoignable), on tente la bascule.
+        """
+        current = self.is_volume_muted
+        if current is not None and current == mute:
+            return
+        self._remember_optimistic(muted=mute)
+        await self._send("toggleMute")
 
     async def async_turn_off(self) -> None:
         """Arrête la lecture. Ne ferme PAS l'app : tvOS ne permet pas de quitter une app à distance."""

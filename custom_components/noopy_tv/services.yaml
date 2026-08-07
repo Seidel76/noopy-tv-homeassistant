@@ -80,8 +80,8 @@ play_episode:
 send_command:
   name: Envoyer une commande
   description: >-
-    Envoie une commande brute au lecteur OneTV. Le volume n'est pas disponible :
-    l'application ne l'implémente pas côté lecteur.
+    Envoie une commande brute au lecteur OneTV. Les commandes de volume agissent sur le gain
+    du lecteur, pas sur le volume du téléviseur (hors de portée d'une application tvOS).
   fields:
     command:
       name: Commande
@@ -101,11 +101,16 @@ send_command:
             - setSubtitleTrack
             - nextChannel
             - previousChannel
+            - setVolume
+            - adjustVolume
+            - toggleMute
     params:
       name: Paramètres
       description: >-
         Paramètres de la commande. seekRelative attend "seconds", seekAbsolute attend
-        "position", setAudioTrack et setSubtitleTrack attendent "trackIndex".
+        "position", setAudioTrack et setSubtitleTrack attendent "trackIndex", setVolume
+        attend "level" (0 à 1), adjustVolume attend "delta" (signé). toggleMute n'en prend
+        aucun.
       required: false
       example: '{"seconds": -30}'
       selector:
