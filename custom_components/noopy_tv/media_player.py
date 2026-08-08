@@ -147,6 +147,18 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
     def _reachable(self) -> bool:
         return bool(self.coordinator.last_update_success)
 
+    def _app_in_foreground(self) -> bool:
+        """L'application est-elle réellement AFFICHÉE sur le téléviseur ?
+
+        `False` tant qu'on n'en a pas la preuve : une application injoignable ne l'est pas,
+        et une version trop ancienne pour publier `foreground` doit être relancée plutôt que
+        laissée dans un état supposé.
+        """
+        if not self._reachable():
+            return False
+        info = getattr(self._api, "info", None) or {}
+        return info.get("foreground") is True
+
     @callback
     def _handle_coordinator_update(self) -> None:
         """Suit les sauts de position pour alimenter `media_position_updated_at`.
@@ -410,6 +422,10 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             "is_live": ps.get("isLive"),
             "is_at_live_edge": ps.get("isAtLiveEdge"),
             "timeshift_delay": ps.get("timeshiftDelay"),
+            # L'application est-elle AFFICHÉE (pas seulement joignable) ? À utiliser dans une
+            # automatisation plutôt que l'attribut `app_name` de l'Apple TV, qui continue
+            # d'annoncer OneTV longtemps après sa mise en arrière-plan.
+            "app_foreground": self._app_in_foreground(),
         }
         # 🎬 Métadonnées TMDB du contenu en cours (films et épisodes).
         for source, target in (
@@ -565,11 +581,17 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         Nécessite `select_source` sur l'Apple TV : l'app ne peut pas se lancer elle-même
         puisque son serveur HTTP ne tourne que quand elle est déjà ouverte.
         """
-        # ⚠️ Si l'app RÉPOND DÉJÀ, elle est lancée : ne rien faire de plus. Refaire un
-        # `select_source` sur une app au premier plan la fait re-présenter par tvOS, ce qui
-        # relance l'aperçu de la page affichée — un aperçu vidéo démarrait donc à chaque appui
-        # sur le bouton marche/arrêt, quelle que soit la page (constaté le 2026-08-07).
-        if self._reachable():
+        # ⚠️ « Répond » n'est PAS « est à l'écran ». Le serveur HTTP de l'app continue de
+        # répondre en arrière-plan, et l'attribut `app_name` de l'entité Apple TV continue
+        # d'annoncer OneTV bien après sa mise en arrière-plan. Se fier à l'un ou à l'autre
+        # fait croire que tout va bien : le 2026-08-08, une automatisation d'arrivée a zappé
+        # sur une chaîne sans jamais ramener l'application à l'écran — le son jouait, la
+        # télévision montrait autre chose.
+        #
+        # On n'abrège donc que sur le champ `foreground` de l'application, seul signal fiable.
+        # Sans lui (version antérieure à 2026-08), on relance : mieux vaut un aperçu de trop
+        # qu'une automatisation qui ne fait rien.
+        if self._app_in_foreground():
             await self.coordinator.async_request_refresh()
             return
 
