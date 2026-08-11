@@ -15,6 +15,7 @@ from urllib.parse import quote
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -33,6 +34,9 @@ from .device import build_device_info
 from .images import proxy_image_url, shared_artwork_picture
 
 _LOGGER = logging.getLogger(__name__)
+
+# Cycles consécutifs sans aucune catégorie avant de supprimer les selects (cf. listener).
+EMPTY_CYCLES_BEFORE_PURGE = 3
 
 
 def slugify(text: str) -> str:
@@ -58,8 +62,11 @@ async def async_setup_entry(
     api = data["api"]
 
     # Tracker des entities déjà créées (pour add dynamiques quand HA détecte
-    # une nouvelle catégorie au runtime)
-    created_categories: set[str] = set()
+    # une nouvelle catégorie au runtime, ET pour les RETIRER quand elle disparaît —
+    # v4.9.2 : supprimer une playlist dans l'app laissait ses selects de catégorie au
+    # registre, avec leur dernier état gelé : Home Assistant continuait d'afficher des
+    # chaînes qui n'existaient plus).
+    created_categories: dict[str, NoopyTVCategorySelect] = {}
 
     entities: list[SelectEntity] = [
         NoopyTVChannelSelect(coordinator, api, entry),
@@ -75,8 +82,9 @@ async def async_setup_entry(
     category_selects_enabled = entry.options.get(CONF_ENABLE_CATEGORY_SELECTS, True)
     initial_categories = _categories_from_coordinator(coordinator) if category_selects_enabled else []
     for category_name in initial_categories:
-        entities.append(NoopyTVCategorySelect(coordinator, api, entry, category_name))
-        created_categories.add(category_name)
+        ent = NoopyTVCategorySelect(coordinator, api, entry, category_name)
+        entities.append(ent)
+        created_categories[category_name] = ent
         _LOGGER.debug("Création select pour catégorie : %s", category_name)
 
     async_add_entities(entities)
@@ -86,11 +94,31 @@ async def async_setup_entry(
         len(created_categories),
     )
 
-    # Listener pour ajouter de nouveaux selects quand de nouvelles catégories
-    # apparaissent au runtime (changement playlist, refresh).
+    # Purge des selects de catégorie orphelins laissés au registre par une session
+    # précédente (playlist supprimée pendant que HA tournait, ou entre deux démarrages).
+    # ⚠️ On ne purge QUE si on a une photo fiable des catégories courantes : une liste vide
+    # alors que les selects sont activés = app en cours de chargement, pas une suppression.
+    if not category_selects_enabled:
+        _async_purge_orphan_category_selects(hass, entry, keep_slugs=set())
+    elif initial_categories:
+        _async_purge_orphan_category_selects(
+            hass, entry, keep_slugs={slugify(cat) for cat in initial_categories}
+        )
+
+    # Compteur d'hystérésis : une liste de catégories vide peut être transitoire (l'app
+    # reconstruit ses caches après un refresh). On n'accepte « plus aucune catégorie » —
+    # le cas « j'ai supprimé ma seule playlist » — qu'après plusieurs cycles consécutifs.
+    empty_cycles = 0
+
+    # Listener pour ajouter les selects des nouvelles catégories et retirer ceux des
+    # catégories disparues (changement/suppression de playlist, refresh).
     @callback
-    def _async_add_new_category_selects() -> None:
+    def _async_sync_category_selects() -> None:
+        nonlocal empty_cycles
         if not category_selects_enabled:
+            return
+        # Un cycle en échec ne prouve rien : garder l'existant plutôt que tout supprimer.
+        if not coordinator.last_update_success:
             return
         new_cats = _categories_from_coordinator(coordinator)
         added: list[NoopyTVCategorySelect] = []
@@ -98,12 +126,82 @@ async def async_setup_entry(
             if cat not in created_categories:
                 ent = NoopyTVCategorySelect(coordinator, api, entry, cat)
                 added.append(ent)
-                created_categories.add(cat)
+                created_categories[cat] = ent
                 _LOGGER.info("OneTV: nouvelle catégorie détectée → %s", cat)
         if added:
             async_add_entities(added)
 
-    entry.async_on_unload(coordinator.async_add_listener(_async_add_new_category_selects))
+        if new_cats:
+            empty_cycles = 0
+        else:
+            empty_cycles += 1
+            if empty_cycles < EMPTY_CYCLES_BEFORE_PURGE:
+                return
+        current = set(new_cats)
+        for cat in [c for c in created_categories if c not in current]:
+            ent = created_categories.pop(cat)
+            _async_remove_category_select(hass, entry, cat, ent)
+            _LOGGER.info(
+                "OneTV: catégorie disparue (playlist supprimée ?) → select supprimé : %s", cat
+            )
+
+    entry.async_on_unload(coordinator.async_add_listener(_async_sync_category_selects))
+
+
+def _category_unique_id(entry: ConfigEntry, category: str) -> str:
+    return f"{entry.entry_id}_category_{slugify(category)}"
+
+
+@callback
+def _async_remove_category_select(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    category: str,
+    entity: NoopyTVCategorySelect | None = None,
+) -> None:
+    """Supprime une entité select de catégorie, registre COMPRIS.
+
+    `Entity.async_remove()` seul retire l'état mais laisse l'entrée au registre : elle
+    resterait listée en `unavailable` avec son dernier état — exactement le symptôme que
+    l'utilisateur voit (chaînes d'une playlist supprimée toujours affichées). La suppression
+    de l'entrée de registre retire aussi l'entité de la plateforme.
+    """
+    registry = er.async_get(hass)
+    entity_id = registry.async_get_entity_id(
+        "select", DOMAIN, _category_unique_id(entry, category)
+    )
+    if entity_id is not None:
+        registry.async_remove(entity_id)
+    elif entity is not None:
+        hass.async_create_task(entity.async_remove(force_remove=True))
+
+
+@callback
+def _async_purge_orphan_category_selects(
+    hass: HomeAssistant, entry: ConfigEntry, keep_slugs: set[str]
+) -> None:
+    """Retire du registre les selects `_category_<slug>` qui n'ont plus de catégorie."""
+    registry = er.async_get(hass)
+    prefix = f"{entry.entry_id}_category_"
+    removed = 0
+    for entity_id, entity_entry in list(registry.entities.items()):
+        if entity_entry.config_entry_id != entry.entry_id:
+            continue
+        if entity_entry.platform != DOMAIN:
+            continue
+        unique_id = entity_entry.unique_id or ""
+        if not unique_id.startswith(prefix):
+            continue
+        if unique_id[len(prefix):] in keep_slugs:
+            continue
+        registry.async_remove(entity_id)
+        removed += 1
+    if removed:
+        _LOGGER.info(
+            "OneTV : %d select(s) de catégorie orphelin(s) supprimé(s) du registre "
+            "(playlist supprimée ou selects par catégorie désactivés).",
+            removed,
+        )
 
 
 def _categories_from_coordinator(coordinator) -> list[str]:
@@ -198,6 +296,13 @@ class _ChannelSelectBase(CoordinatorEntity, SelectEntity):
     @property
     def options(self) -> list[str]:
         return self._build_options()
+
+    @property
+    def available(self) -> bool:
+        # Sans ça, un select dont la source a disparu (playlist supprimée, catégorie masquée)
+        # garde son dernier état affiché : Home Assistant continue de montrer une chaîne qui
+        # n'existe plus, et l'utilisateur peut encore la « sélectionner ».
+        return bool(self.coordinator.last_update_success) and bool(self.options)
 
     async def async_select_option(self, option: str) -> None:
         # Re-build le map au cas où il aurait été flushé

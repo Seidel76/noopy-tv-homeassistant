@@ -189,6 +189,7 @@ automation:
 | Entities unavailable | The app is closed, or the Apple TV is asleep |
 | Connection refused | Both devices are on the same network and subnet |
 | Turn on does nothing | No Apple TV paired — see **Launching the app** above |
+| Channels from a deleted playlist still listed | Fixed in 4.9.2: per-category selectors are now removed when their category disappears. Older installs may keep stale entities — reload the integration once |
 
 Debug logging:
 
