@@ -28,7 +28,7 @@
 - **App launching** — pair your Apple TV entity and `media_player.turn_on` starts OneTV when
   the app is closed
 - **Track selection** — audio and subtitle pickers for whatever is playing
-- **Diagnostics** — downloadable from the integration page, with the API key redacted
+- **Diagnostics** — downloadable from the integration page, with the API key and every URL redacted (stream URLs carry your provider username and password; Plex/Emby/Jellyfin artwork URLs carry their token)
 
 ### Media player
 

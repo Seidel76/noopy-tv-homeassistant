@@ -4,7 +4,12 @@
 problème (identité de l'appareil, état du flux push, cadence de sondage, forme du dernier
 payload) est réuni en un fichier.
 
-⚠️ `api_key` est expurgée : elle donne un accès complet à l'API de l'app sur le réseau local.
+⚠️ Un diagnostic finit joint à des tickets GitHub PUBLICS. On expurge donc :
+- `api_key` (accès complet à l'API de l'app sur le réseau local) ;
+- toute URL : celles des flux portent l'identifiant et le mot de passe de l'abonné
+  (`/live/<utilisateur>/<mot de passe>/<id>.ts`), celles des visuels Plex/Emby/Jellyfin leur
+  jeton. Expurgation par CLÉ sur tout le fichier, puis filet par VALEUR (`redact_urls`) pour
+  une clé d'URL que l'app ajouterait sous un nom inconnu.
 """
 
 from __future__ import annotations
@@ -16,8 +21,31 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import CONF_API_KEY, DOMAIN
+from .redact import STREAM_URL_KEYS, redact_urls
 
-TO_REDACT = {CONF_API_KEY, "api_key", "apiKey"}
+TO_REDACT = {
+    CONF_API_KEY,
+    "api_key",
+    "apiKey",
+    "token",
+    "access_token",
+    "accessToken",
+    "username",
+    "password",
+    *STREAM_URL_KEYS,
+    "url",
+    "logo_url",
+    "logoURL",
+    "poster_url",
+    "posterURL",
+    "backdrop_url",
+    "backdropURL",
+    "icon_url",
+    "iconURL",
+    "current_program_icon",
+    "catchup_url",
+    "catchupURL",
+}
 
 
 async def async_get_config_entry_diagnostics(
@@ -34,13 +62,13 @@ async def async_get_config_entry_diagnostics(
     # de forme, et le fichier reste lisible.
     sample = [dict(list(channels.values())[i]) for i in range(min(3, len(channels)))]
 
-    return {
+    diagnostics = {
         "entry": {
-            "data": async_redact_data(dict(entry.data), TO_REDACT),
+            "data": dict(entry.data),
             "options": dict(entry.options),
             "unique_id": entry.unique_id,
         },
-        "server_info": async_redact_data(dict(getattr(api, "info", {}) or {}), TO_REDACT),
+        "server_info": dict(getattr(api, "info", {}) or {}),
         "coordinator": {
             "last_update_success": coordinator.last_update_success,
             "update_interval_seconds": (
@@ -60,3 +88,4 @@ async def async_get_config_entry_diagnostics(
         "playback_state": payload.get("playback_state"),
         "channels_sample": sample,
     }
+    return redact_urls(async_redact_data(diagnostics, TO_REDACT))

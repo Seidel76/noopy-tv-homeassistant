@@ -36,6 +36,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import DOMAIN
+from .redact import loggable_url
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -64,11 +65,11 @@ async def async_square_png(hass: HomeAssistant, url: str) -> bytes | None:
     try:
         async with session.get(url, timeout=aiohttp.ClientTimeout(connect=5, total=15)) as response:
             if response.status != 200:
-                _LOGGER.debug("Visuel %s : HTTP %s", url, response.status)
+                _LOGGER.debug("Visuel %s : HTTP %s", loggable_url(url), response.status)
                 return None
             raw = await response.read()
     except (aiohttp.ClientError, asyncio.TimeoutError) as err:
-        _LOGGER.debug("Visuel %s injoignable : %s", url, err)
+        _LOGGER.debug("Visuel %s injoignable : %s", loggable_url(url), type(err).__name__)
         return None
 
     # Pillow est fourni par Home Assistant. Traitement en exécuteur : c'est du CPU, et la

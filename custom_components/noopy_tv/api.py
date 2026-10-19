@@ -14,6 +14,8 @@ from urllib.parse import quote
 
 import aiohttp
 
+from .redact import strip_stream_urls
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -21,7 +23,6 @@ _LOGGER = logging.getLogger(__name__)
 class NoopyChannel:
     id: str
     name: str
-    stream_url: str | None = None
     logo_url: str | None = None
     category: str | None = None
     tvg_id: str | None = None
@@ -170,7 +171,6 @@ class NoopyTVAPI:
             channel = NoopyChannel(
                 id=item.get("id", ""),
                 name=item.get("name", ""),
-                stream_url=item.get("stream_url"),
                 logo_url=item.get("logo_url"),
                 category=item.get("category"),
                 tvg_id=item.get("tvg_id"),
@@ -238,7 +238,9 @@ class NoopyTVAPI:
     async def get_player_status(self) -> dict[str, Any]:
         """Récupère l'état du player legacy (`/api/v1/player`) avec available_channels."""
         data = await self._request("/api/v1/player", timeout=6)
-        return data
+        # L'URL de lecture porte les identifiants de l'abonné (Xtream/M3U) : rien dans
+        # l'intégration n'en a besoin, elle n'entre donc jamais dans les données.
+        return strip_stream_urls(data)
 
     async def get_playback_state(self) -> dict[str, Any]:
         """Récupère l'état détaillé de la lecture (`/api/v1/player/state`).
@@ -251,7 +253,7 @@ class NoopyTVAPI:
         l'image (poster pour film/épisode, logo pour chaîne).
         """
         try:
-            return await self._request("/api/v1/player/state", timeout=6)
+            return strip_stream_urls(await self._request("/api/v1/player/state", timeout=6))
         except NoopyTVAPIError as err:
             _LOGGER.debug("get_playback_state failed: %s", err)
             return {}
@@ -433,7 +435,8 @@ class NoopyTVAPI:
                                 if isinstance(decoded, dict):
                                     payload = decoded
                             except ValueError:
-                                _LOGGER.debug("SSE: payload non-JSON ignoré (%s)", raw[:120])
+                                # Jamais le contenu : un event peut porter une URL de flux (identifiants).
+                                _LOGGER.debug("SSE: payload non-JSON ignoré (%d octets)", len(raw))
                             on_event(event_name, payload)
                         event_name = "message"
                         data_lines = []
@@ -500,7 +503,6 @@ class NoopyTVAPI:
                     "id": channel.id,
                     "name": channel.name,
                     "logo_url": channel.logo_url,
-                    "stream_url": channel.stream_url,
                     "category": channel.category,
                     "tvg_id": channel.tvg_id,
                     "stream_id": channel.stream_id,

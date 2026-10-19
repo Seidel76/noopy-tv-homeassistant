@@ -32,6 +32,7 @@ from .const import (
 )
 from .device import build_device_info
 from .images import proxy_image_url, shared_artwork_picture
+from .redact import public_url
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -251,10 +252,11 @@ class _ChannelSelectBase(CoordinatorEntity, SelectEntity):
     def device_info(self):
         return build_device_info(self._entry, getattr(self._api, "info", None))
 
-    def _proxy_image_url(self, raw_url: str, size: int = 48) -> str:
-        # Idem capteur : on réutilise l'entité `image`, déjà mise au carré.
+    def _proxy_image_url(self, raw_url: str, size: int = 48) -> str | None:
+        # Idem capteur : on réutilise l'entité `image`, déjà mise au carré. Repli brut
+        # seulement sans identifiant (jeton Plex, `api_key` Emby/Jellyfin…).
         shared = shared_artwork_picture(self.hass, self._entry)
-        return shared or proxy_image_url(self._entry, raw_url, size)
+        return shared or public_url(proxy_image_url(self._entry, raw_url, size))
 
     def _current_channel(self) -> dict[str, Any] | None:
         if not self.coordinator.data:
@@ -360,7 +362,7 @@ class NoopyTVChannelSelect(_ChannelSelectBase):
         if ch:
             attrs[ATTR_CURRENT_CHANNEL] = ch.get("name")
             attrs[ATTR_CURRENT_CHANNEL_ID] = ch.get("id")
-            attrs[ATTR_CURRENT_CHANNEL_LOGO] = ch.get("logo_url")
+            attrs[ATTR_CURRENT_CHANNEL_LOGO] = public_url(ch.get("logo_url"))
             attrs["current_category"] = ch.get("category", "")
             if ch.get("logo_url"):
                 attrs["logo_proxy_url"] = self._proxy_image_url(ch["logo_url"], size=80)

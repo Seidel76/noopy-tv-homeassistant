@@ -51,6 +51,7 @@ from .images import async_square_png, proxy_image_url
 from .naming import is_channel_name_valid
 from .thumbnails import squared_thumbnail_url
 from .playback import infer_content_type
+from .redact import public_url
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -442,6 +443,10 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             ("posterURL", "poster_url"),
         ):
             value = ps.get(source)
+            if target in ("backdrop_url", "poster_url"):
+                # Visuels Plex/Emby/Jellyfin : jeton dans l'URL ⇒ non exposés en attribut
+                # (la jaquette reste servie par le proxy du lecteur).
+                value = public_url(value)
             if value not in (None, "", []):
                 attrs[target] = value
 

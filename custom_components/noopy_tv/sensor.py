@@ -35,7 +35,6 @@ from .const import (
     ATTR_PLAYER_ACTIVE,
     ATTR_PROGRESS_PERCENT,
     ATTR_STREAM_ID,
-    ATTR_STREAM_URL,
     ATTR_TOTAL_CATEGORIES,
     ATTR_TOTAL_CHANNELS,
     ATTR_TVG_ID,
@@ -44,6 +43,7 @@ from .const import (
 from .device import build_device_info
 from .playback import infer_content_type
 from .images import proxy_image_url, shared_artwork_picture
+from .redact import public_url
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -194,11 +194,13 @@ class NoopyTVCurrentChannelSensor(CoordinatorEntity, SensorEntity):
             return str(title)
         return "Lecture en cours"
 
-    def _proxy_image_url(self, raw_url: str, size: int = 200) -> str:
+    def _proxy_image_url(self, raw_url: str, size: int = 200) -> str | None:
         # Priorité à l'entité `image`, qui sert le MÊME visuel mais carré : un capteur ne
         # peut pas transformer une image, son `entity_picture` n'est qu'une URL.
+        # ⚠️ Repli brut seulement s'il ne porte aucun identifiant (jeton Plex, `api_key`
+        # Emby/Jellyfin…) : `entity_picture` est un attribut d'état comme un autre.
         shared = shared_artwork_picture(self.hass, self._entry)
-        return shared or proxy_image_url(self._entry, raw_url, size)
+        return shared or public_url(proxy_image_url(self._entry, raw_url, size))
 
     @property
     def entity_picture(self) -> str | None:
@@ -274,9 +276,10 @@ class NoopyTVCurrentChannelSensor(CoordinatorEntity, SensorEntity):
                 attrs["content_subtitle"] = ps["contentSubtitle"]
             if ps.get("tmdbID"):
                 attrs["tmdb_id"] = ps["tmdbID"]
-            if ps.get("posterURL"):
-                attrs["poster_url"] = ps["posterURL"]
-                attrs["poster_proxy_url"] = self._proxy_image_url(ps["posterURL"], size=400)
+            poster = public_url(ps.get("posterURL"))
+            if poster:
+                attrs["poster_url"] = poster
+                attrs["poster_proxy_url"] = self._proxy_image_url(poster, size=400)
             return attrs
 
         # Chaîne TV ou catchup : remonter les attributs channel
@@ -286,13 +289,14 @@ class NoopyTVCurrentChannelSensor(CoordinatorEntity, SensorEntity):
 
         attrs["channel_id"] = ch.get("id") or ps.get("contentId")
         attrs["channel_name"] = ch.get("name") or ps.get("contentTitle")
-        attrs[ATTR_LOGO_URL] = ch.get("logo_url") or ps.get("logoURL")
-        attrs[ATTR_STREAM_URL] = ch.get("stream_url")
+        # ⚠️ Jamais `stream_url` : avec Xtream et la plupart des M3U de fournisseur, l'URL
+        # porte l'identifiant et le mot de passe de l'abonné dans son chemin.
+        attrs[ATTR_LOGO_URL] = public_url(ch.get("logo_url") or ps.get("logoURL"))
         attrs[ATTR_CATEGORY] = ch.get("category")
         attrs[ATTR_TVG_ID] = ch.get("tvg_id")
         attrs[ATTR_STREAM_ID] = ch.get("stream_id")
 
-        logo_url = ch.get("logo_url") or ps.get("logoURL")
+        logo_url = public_url(ch.get("logo_url") or ps.get("logoURL"))
         if logo_url:
             attrs["logo_proxy_url"] = self._proxy_image_url(logo_url, size=200)
 
@@ -303,7 +307,7 @@ class NoopyTVCurrentChannelSensor(CoordinatorEntity, SensorEntity):
             attrs[ATTR_CURRENT_PROGRAM_START] = cp.get("start")
             attrs[ATTR_CURRENT_PROGRAM_END] = cp.get("end")
             attrs[ATTR_CURRENT_PROGRAM_DESCRIPTION] = cp.get("description")
-            attrs[ATTR_CURRENT_PROGRAM_ICON] = cp.get("icon_url")
+            attrs[ATTR_CURRENT_PROGRAM_ICON] = public_url(cp.get("icon_url"))
             attrs[ATTR_PROGRESS_PERCENT] = cp.get("progress_percent", 0)
         else:
             # Fallback EPG depuis playback_state
@@ -313,7 +317,7 @@ class NoopyTVCurrentChannelSensor(CoordinatorEntity, SensorEntity):
                 attrs[ATTR_CURRENT_PROGRAM_START] = psp.get("start")
                 attrs[ATTR_CURRENT_PROGRAM_END] = psp.get("end")
                 attrs[ATTR_CURRENT_PROGRAM_DESCRIPTION] = psp.get("desc")
-                attrs[ATTR_CURRENT_PROGRAM_ICON] = psp.get("iconURL")
+                attrs[ATTR_CURRENT_PROGRAM_ICON] = public_url(psp.get("iconURL"))
                 attrs[ATTR_PROGRESS_PERCENT] = round((psp.get("progress") or 0) * 100, 1)
 
         return attrs
@@ -475,7 +479,7 @@ class NoopyTVProgrammeProgressSensor(CoordinatorEntity, SensorEntity):
         if start and end:
             attrs["duration_minutes"] = int((end - start).total_seconds() // 60)
             attrs["remaining_minutes"] = max(0, int((end - dt_util.utcnow()).total_seconds() // 60))
-        icon_url = programme.get("iconURL") or programme.get("icon_url")
+        icon_url = public_url(programme.get("iconURL") or programme.get("icon_url"))
         if icon_url:
             attrs["icon_url"] = icon_url
         return {k: v for k, v in attrs.items() if v is not None}
