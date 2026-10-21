@@ -149,10 +149,10 @@
   },
   "exceptions": {
     "command_failed": {
-      "message": "OneTV: command '{command}' failed: {error}"
+      "message": "OneTV: the {command} command failed: {error}"
     },
     "command_refused": {
-      "message": "OneTV refused the command '{command}': {error}"
+      "message": "OneTV refused the {command} command: {error}"
     },
     "track_not_found": {
       "message": "Track not found: {option}"
