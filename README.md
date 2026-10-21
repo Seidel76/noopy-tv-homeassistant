@@ -208,6 +208,10 @@ logger:
     custom_components.noopy_tv: debug
 ```
 
+## Changelog
+
+Every version and what changed: [Releases](https://github.com/Seidel76/noopy-tv-homeassistant/releases).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
