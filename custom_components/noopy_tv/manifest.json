@@ -11,8 +11,9 @@
   "documentation": "https://github.com/Seidel76/noopy-tv-homeassistant",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/Seidel76/noopy-tv-homeassistant/issues",
-  "version": "4.9.3",
+  "version": "4.9.4",
   "zeroconf": [
-    "_noopytv._tcp.local."
+    "_noopytv._tcp.local.",
+    "_noopytvha._tcp.local."
   ]
 }

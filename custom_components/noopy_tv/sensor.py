@@ -69,7 +69,7 @@ class NoopyTVStatsSensor(CoordinatorEntity, SensorEntity):
     """Stats globales : nombre total de chaînes, catégories, etc."""
 
     _attr_has_entity_name = True
-    _attr_name = "Statistiques"
+    _attr_translation_key = "statistics"
     _attr_icon = "mdi:television-box"
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
@@ -125,7 +125,7 @@ class NoopyTVCurrentChannelSensor(CoordinatorEntity, SensorEntity):
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Lecture en cours"
+    _attr_translation_key = "now_playing"
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
@@ -341,7 +341,7 @@ class NoopyTVProgrammeProgressSensor(CoordinatorEntity, SensorEntity):
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Progression"
+    _attr_translation_key = "progress"
     _attr_icon = "mdi:progress-clock"
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_suggested_display_precision = 0

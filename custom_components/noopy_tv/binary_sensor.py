@@ -38,7 +38,7 @@ class NoopyTVAvailabilityBinarySensor(CoordinatorEntity, BinarySensorEntity):
     """`on` quand le serveur HTTP de l'app OneTV répond."""
 
     _attr_has_entity_name = True
-    _attr_name = "Application accessible"
+    _attr_translation_key = "app_available"
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 

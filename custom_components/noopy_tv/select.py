@@ -334,7 +334,6 @@ class NoopyTVChannelSelect(_ChannelSelectBase):
 
     def __init__(self, coordinator, api, entry: ConfigEntry) -> None:
         super().__init__(coordinator, api, entry, "channel_selector")
-        self._attr_name = "Toutes les chaînes"
 
     @property
     def entity_picture(self) -> str | None:
@@ -453,12 +452,12 @@ class NoopyTVTrackSelect(CoordinatorEntity, SelectEntity):
         self._entry = entry
         self._kind = kind  # "audio" | "subtitle"
         if kind == "audio":
-            self._attr_name = "Piste audio"
+            self._attr_translation_key = "audio_track"
             self._attr_icon = "mdi:volume-high"
             self._payload_key = "audioTracks"
             self._command = "setAudioTrack"
         else:
-            self._attr_name = "Sous-titres"
+            self._attr_translation_key = "subtitle_track"
             self._attr_icon = "mdi:subtitles-outline"
             self._payload_key = "subtitleTracks"
             self._command = "setSubtitleTrack"
@@ -505,17 +504,28 @@ class NoopyTVTrackSelect(CoordinatorEntity, SelectEntity):
         # confiance à l'unicité des noms de pistes.
         track = next((t for t in self._tracks() if self._label(t) == option), None)
         if track is None or track.get("index") is None:
-            raise HomeAssistantError(f"Piste introuvable : {option}")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="track_not_found",
+                translation_placeholders={"option": str(option)},
+            )
 
         try:
             result = await self._api.send_command(
                 self._command, {"trackIndex": int(track["index"])}
             )
         except NoopyTVAPIError as err:
-            raise HomeAssistantError(f"OneTV : changement de piste impossible — {err}") from err
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="track_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
         if not result.get("success", False):
             raise HomeAssistantError(
-                f"OneTV a refusé le changement de piste : "
-                f"{result.get('error') or result.get('message')}"
+                translation_domain=DOMAIN,
+                translation_key="track_refused",
+                translation_placeholders={
+                    "error": str(result.get("error") or result.get("message"))
+                },
             )
         await self.coordinator.async_request_refresh()

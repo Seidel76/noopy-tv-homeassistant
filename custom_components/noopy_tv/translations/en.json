@@ -39,9 +39,39 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "app_available": {
+        "name": "App reachable"
+      }
+    },
+    "button": {
+      "go_live": {
+        "name": "Back to live"
+      },
+      "refresh": {
+        "name": "Refresh data"
+      }
+    },
+    "sensor": {
+      "statistics": {
+        "name": "Statistics"
+      },
+      "now_playing": {
+        "name": "Now playing"
+      },
+      "progress": {
+        "name": "Progress"
+      }
+    },
     "select": {
       "channel_selector": {
-        "name": "TV Channel"
+        "name": "All channels"
+      },
+      "audio_track": {
+        "name": "Audio track"
+      },
+      "subtitle_track": {
+        "name": "Subtitles"
       }
     }
   },
@@ -56,7 +86,7 @@
       "fields": {
         "channel_id": {
           "name": "Channel ID",
-          "description": "The identifier or name of the channel to play."
+          "description": "Channel UUID, stream id or name. Names are matched ignoring case and accents."
         }
       }
     },
@@ -115,6 +145,50 @@
     "no_apple_tv_paired": {
       "title": "OneTV: no Apple TV paired",
       "description": "Pair your Apple TV in the OneTV integration options. Without it Home Assistant cannot launch the app while it is closed: `media_player.turn_on` fails and any automation relying on it silently does nothing."
+    }
+  },
+  "exceptions": {
+    "command_failed": {
+      "message": "OneTV: command '{command}' failed: {error}"
+    },
+    "command_refused": {
+      "message": "OneTV refused the command '{command}': {error}"
+    },
+    "track_not_found": {
+      "message": "Track not found: {option}"
+    },
+    "track_failed": {
+      "message": "OneTV: could not change the track: {error}"
+    },
+    "track_refused": {
+      "message": "OneTV refused the track change: {error}"
+    },
+    "no_apple_tv": {
+      "message": "No Apple TV paired. Set it in the OneTV integration options so Home Assistant can launch the app."
+    },
+    "entity_not_found": {
+      "message": "The entity {entity_id} does not exist."
+    },
+    "apple_tv_not_waking": {
+      "message": "{entity_id} still refuses the source change after {attempts} attempts, the Apple TV does not wake up. Turn the TV on and try again."
+    },
+    "channel_not_found": {
+      "message": "OneTV could not find the channel \"{channel}\"."
+    },
+    "unsupported_media_type": {
+      "message": "Media type not supported by OneTV: {media_type}"
+    },
+    "unknown_browse_path": {
+      "message": "Unknown browse path: {path}"
+    },
+    "category_not_found": {
+      "message": "Category not found: {category}"
+    },
+    "go_live_failed": {
+      "message": "OneTV: could not go back to live: {error}"
+    },
+    "go_live_refused": {
+      "message": "OneTV refused to go back to live: {error}"
     }
   }
 }

@@ -53,19 +53,27 @@ Assistant crops them to a circle — a channel logo would otherwise lose its edg
 
 ### Entities
 
+Entity names follow your Home Assistant language (English and French today). The ids below
+are the ones a **new** installation gets with Home Assistant in English:
+
 | Entity | What it is |
 | --- | --- |
 | `media_player.onetv` | The player: state, artwork, transport, source list, browser |
-| `sensor.onetv_lecture_en_cours` | Channel, movie or episode currently playing |
-| `sensor.onetv_progression_du_programme` | Percent elapsed — the live programme, or the movie |
-| `sensor.onetv_statistiques` | Channel and category counts |
-| `select.onetv_toutes_les_chaines` | Every channel, plus one selector per category |
-| `select.onetv_piste_audio` / `..._sous_titres` | Audio and subtitle tracks |
-| `binary_sensor.onetv_application_accessible` | Whether the app answers right now |
-| `button.onetv_retour_au_direct` | Back to live — shown only when you are behind |
-| `button.onetv_rafraichir` | Force a data refresh |
+| `sensor.onetv_now_playing` | Channel, movie or episode currently playing |
+| `sensor.onetv_progress` | Percent elapsed — the live programme, or the movie |
+| `sensor.onetv_statistics` | Channel and category counts |
+| `select.onetv_all_channels` | Every channel, plus one selector per category |
+| `select.onetv_audio_track` / `select.onetv_subtitles` | Audio and subtitle tracks |
+| `binary_sensor.onetv_app_reachable` | Whether the app answers right now |
+| `button.onetv_back_to_live` | Back to live — shown only when you are behind |
+| `button.onetv_refresh_data` | Force a data refresh |
 
-Prefer `binary_sensor.*_application_accessible` over checking whether other entities are
+> **Upgrading from 4.9.3 or older?** Nothing to do. Home Assistant keeps the entity ids it
+> already gave your entities (`sensor.onetv_lecture_en_cours`, `select.onetv_toutes_les_chaines`…),
+> so automations, scripts and dashboards keep working. Only the displayed names change, and
+> they stay French if your Home Assistant is in French.
+
+Prefer `binary_sensor.onetv_app_reachable` over checking whether other entities are
 `unavailable`. Note that the Apple TV's own `app_name` attribute keeps reporting OneTV long
 after the app has been suspended.
 
@@ -104,10 +112,10 @@ The app name must match the entry in the Apple TV's source list exactly (default
 ## Services
 
 ```yaml
-# Change channel — by name or by id
+# Change channel — by id or by name (case and accents are ignored: "france 2" works)
 action: noopy_tv.play_channel
 data:
-  channel_id: "TF1"
+  channel_id: "France 2"
 
 # Play a movie, optionally resuming
 action: noopy_tv.play_movie
@@ -153,9 +161,9 @@ cards:
     entity: media_player.onetv
   - type: entities
     entities:
-      - entity: sensor.onetv_progression_du_programme
+      - entity: sensor.onetv_progress
         name: Progress
-      - entity: select.onetv_toutes_les_chaines
+      - entity: select.onetv_all_channels
         name: Channel
 ```
 
@@ -173,7 +181,8 @@ automation:
       - action: media_player.turn_on
         target:
           entity_id: media_player.onetv
-      - delay: "00:00:10"
+      - wait_template: "{{ is_state_attr('media_player.onetv', 'app_foreground', true) }}"
+        timeout: "00:01:30"
       - action: media_player.select_source
         target:
           entity_id: media_player.onetv
@@ -185,7 +194,7 @@ automation:
 
 | Symptom | What to check |
 | --- | --- |
-| Not discovered | The app is open and its Home Assistant integration is enabled |
+| Not discovered | The app is open and its Home Assistant integration is enabled. Since 4.9.4 the dedicated Home Assistant listener (port 8766) is discovered too, not only the remote-control one (8765) |
 | Entities unavailable | The app is closed, or the Apple TV is asleep |
 | Connection refused | Both devices are on the same network and subnet |
 | Turn on does nothing | No Apple TV paired — see **Launching the app** above |

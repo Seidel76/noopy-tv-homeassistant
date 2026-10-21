@@ -48,7 +48,7 @@ from .const import (
 )
 from .device import build_device_info
 from .images import async_square_png, proxy_image_url
-from .naming import is_channel_name_valid
+from .naming import is_channel_name_valid, resolve_channel_id
 from .thumbnails import squared_thumbnail_url
 from .playback import infer_content_type
 from .redact import public_url
@@ -86,6 +86,33 @@ async def async_setup_entry(
     data = hass.data[DOMAIN][entry.entry_id]
     async_add_entities([NoopyTVMediaPlayer(data["coordinator"], data["api"], entry)])
 
+
+
+# Libellés du navigateur de médias (v4.9.4) : avant, figés en français pour tout le monde.
+_BROWSE_LABELS: dict[str, dict[str, str]] = {
+    "en": {
+        "resume": "Continue watching",
+        "resume_empty": "Continue watching (nothing in progress)",
+        "favorites": "Favorites",
+        "favorites_empty": "Favorites (no channels)",
+        "channels": "Channels",
+        "movies": "Movies",
+        "series": "Series",
+        "episodes": "Episodes",
+        "episodes_empty": "Episodes (unavailable)",
+    },
+    "fr": {
+        "resume": "Reprendre",
+        "resume_empty": "Reprendre (rien en cours)",
+        "favorites": "Favoris",
+        "favorites_empty": "Favoris (aucune chaîne)",
+        "channels": "Chaînes",
+        "movies": "Films",
+        "series": "Séries",
+        "episodes": "Épisodes",
+        "episodes_empty": "Épisodes (indisponibles)",
+    },
+}
 
 class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
     """Lecteur OneTV : état complet, transport, zapping, catalogue navigable."""
@@ -482,18 +509,8 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         return sorted(names)
 
     def _resolve_channel_id(self, wanted: str) -> str | None:
-        """UUID → tel quel ; sinon match sur le nom (exact d'abord, puis insensible à la casse)."""
-        channels = self._channels()
-        if wanted in channels:
-            return wanted
-        for channel_id, channel in channels.items():
-            if channel.get("name") == wanted:
-                return channel_id
-        lowered = wanted.casefold()
-        for channel_id, channel in channels.items():
-            if str(channel.get("name", "")).casefold() == lowered:
-                return channel_id
-        return None
+        """UUID → tel quel ; sinon nom exact, puis insensible à la casse et aux accents."""
+        return resolve_channel_id(self._channels(), wanted)
 
     # ------------------------------------------------------------- commandes
 
@@ -501,10 +518,19 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         try:
             result = await self._api.send_command(command, params)
         except NoopyTVAPIError as err:
-            raise HomeAssistantError(f"OneTV: commande '{command}' échouée — {err}") from err
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="command_failed",
+                translation_placeholders={"command": command, "error": str(err)},
+            ) from err
         if not result.get("success", False):
             raise HomeAssistantError(
-                f"OneTV a refusé la commande '{command}': {result.get('error') or result.get('message')}"
+                translation_domain=DOMAIN,
+                translation_key="command_refused",
+                translation_placeholders={
+                    "command": command,
+                    "error": str(result.get("error") or result.get("message")),
+                },
             )
         await self.coordinator.async_request_refresh()
 
@@ -603,8 +629,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         entity_id = self._apple_tv_entity()
         if not entity_id:
             raise HomeAssistantError(
-                "Aucune entité Apple TV associée : configurez-la dans les options de "
-                "l'intégration OneTV pour pouvoir lancer l'app depuis Home Assistant."
+                translation_domain=DOMAIN, translation_key="no_apple_tv"
             )
 
         await self._wake_apple_tv(entity_id)
@@ -624,7 +649,11 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         avec `home` — la sort de veille, en ~8 s.
         """
         if self.hass.states.get(entity_id) is None:
-            raise HomeAssistantError(f"L'entité {entity_id} n'existe pas.")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="entity_not_found",
+                translation_placeholders={"entity_id": entity_id},
+            )
 
         if not self._apple_tv_is_asleep(entity_id):
             return
@@ -696,9 +725,9 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                     await asyncio.sleep(delay)
 
         raise HomeAssistantError(
-            f"{entity_id} refuse toujours le changement de source après "
-            f"{attempts} tentatives — l'Apple TV ne se réveille pas. Allumez le téléviseur "
-            "puis réessayez."
+            translation_domain=DOMAIN,
+            translation_key="apple_tv_not_waking",
+            translation_placeholders={"entity_id": entity_id, "attempts": str(attempts)},
         ) from last_error
 
     async def _wait_until_reachable(self, timeout: float = 40.0) -> bool:
@@ -725,7 +754,11 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         channel_id = self._resolve_channel_id(wanted) or wanted
         # `play_channel` traverse /api/v1/player/play, qui résout aussi bien un UUID qu'un nom.
         if not await self._api.play_channel(channel_id):
-            raise HomeAssistantError(f"OneTV n'a pas trouvé la chaîne « {wanted} »")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="channel_not_found",
+                translation_placeholders={"channel": wanted},
+            )
         await self.coordinator.async_request_refresh()
 
     async def async_play_media(self, media_type: str, media_id: str, **kwargs: Any) -> None:
@@ -759,7 +792,11 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             )
             return
 
-        raise HomeAssistantError(f"Type de média non supporté par OneTV: {media_type}")
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="unsupported_media_type",
+            translation_placeholders={"media_type": str(media_type)},
+        )
 
     # --------------------------------------------------------- media browser
 
@@ -788,7 +825,19 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             return await self._browse_episodes(media_content_id.split("/", 1)[1])
         if media_content_id.startswith(f"{_BROWSE_SERIES}/"):
             return await self._browse_vod_category(_BROWSE_SERIES, media_content_id.split("/", 1)[1])
-        raise HomeAssistantError(f"Chemin de navigation inconnu: {media_content_id}")
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="unknown_browse_path",
+            translation_placeholders={"path": str(media_content_id)},
+        )
+
+    def _label(self, key: str) -> str:
+        """Libellé du navigateur de médias dans la langue de Home Assistant (repli anglais).
+
+        Les titres d'un `BrowseMedia` sont du texte brut : pas de clé de traduction possible.
+        """
+        language = (self.hass.config.language or "en").split("-")[0].lower()
+        return _BROWSE_LABELS.get(language, _BROWSE_LABELS["en"])[key]
 
     def _browse_root(self) -> BrowseMedia:
         return BrowseMedia(
@@ -805,7 +854,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                     media_class=MediaClass.DIRECTORY,
                     media_content_id=_BROWSE_RESUME,
                     media_content_type="",
-                    title="Reprendre",
+                    title=self._label("resume"),
                     can_play=False,
                     can_expand=True,
                 ),
@@ -813,7 +862,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                     media_class=MediaClass.DIRECTORY,
                     media_content_id=_BROWSE_FAVORITES,
                     media_content_type="",
-                    title="Favoris",
+                    title=self._label("favorites"),
                     can_play=False,
                     can_expand=True,
                 ),
@@ -821,7 +870,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                     media_class=MediaClass.DIRECTORY,
                     media_content_id=_BROWSE_CHANNELS,
                     media_content_type="",
-                    title="Chaînes",
+                    title=self._label("channels"),
                     can_play=False,
                     can_expand=True,
                 ),
@@ -829,7 +878,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                     media_class=MediaClass.DIRECTORY,
                     media_content_id=_BROWSE_MOVIES,
                     media_content_type="",
-                    title="Films",
+                    title=self._label("movies"),
                     can_play=False,
                     can_expand=True,
                 ),
@@ -837,7 +886,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                     media_class=MediaClass.DIRECTORY,
                     media_content_id=_BROWSE_SERIES,
                     media_content_type="",
-                    title="Séries",
+                    title=self._label("series"),
                     can_play=False,
                     can_expand=True,
                 ),
@@ -859,7 +908,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             media_class=MediaClass.DIRECTORY,
             media_content_id=_BROWSE_CHANNELS,
             media_content_type="",
-            title="Chaînes",
+            title=self._label("channels"),
             can_play=False,
             can_expand=True,
             children_media_class=MediaClass.DIRECTORY,
@@ -921,7 +970,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
 
     async def _browse_vod(self, kind: str) -> BrowseMedia:
         categories = await self._fetch_vod(kind)
-        title = "Films" if kind == _BROWSE_MOVIES else "Séries"
+        title = self._label("movies" if kind == _BROWSE_MOVIES else "series")
         return BrowseMedia(
             media_class=MediaClass.DIRECTORY,
             media_content_id=kind,
@@ -950,7 +999,11 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             (c for c in categories if str(c.get("categoryId")) == category_id), None
         )
         if category is None:
-            raise HomeAssistantError(f"Catégorie introuvable: {category_id}")
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="category_not_found",
+                translation_placeholders={"category": str(category_id)},
+            )
 
         is_movies = kind == _BROWSE_MOVIES
         # ⚠️ On n'utilise PAS la liste embarquée dans `/api/v1/movies` : elle ne contient que
@@ -1033,7 +1086,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             media_class=MediaClass.DIRECTORY,
             media_content_id=f"{_BROWSE_EPISODES}/{series_id}",
             media_content_type="",
-            title="Épisodes" if children else "Épisodes (indisponibles)",
+            title=self._label("episodes" if children else "episodes_empty"),
             can_play=False,
             can_expand=True,
             children_media_class=MediaClass.EPISODE,
@@ -1060,7 +1113,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             media_class=MediaClass.DIRECTORY,
             media_content_id=_BROWSE_FAVORITES,
             media_content_type="",
-            title="Favoris" if children else "Favoris (aucune chaîne)",
+            title=self._label("favorites" if children else "favorites_empty"),
             can_play=False,
             can_expand=True,
             children_media_class=MediaClass.VIDEO,
@@ -1134,7 +1187,7 @@ class NoopyTVMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             media_class=MediaClass.DIRECTORY,
             media_content_id=_BROWSE_RESUME,
             media_content_type="",
-            title="Reprendre" if children else "Reprendre (rien en cours)",
+            title=self._label("resume" if children else "resume_empty"),
             can_play=False,
             can_expand=True,
             children_media_class=MediaClass.MOVIE,

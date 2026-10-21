@@ -20,6 +20,13 @@ CONF_DEVICE_MODEL = "device_model"
 CONF_DEVICE_MANUFACTURER = "device_manufacturer"
 # Le TXT porte `sse=1/0` : inutile de tenter un flux push sur un serveur qui n'en a pas.
 CONF_SUPPORTS_SSE = "supports_sse"
+# v4.9.4 — l'app annonce deux services Bonjour : la télécommande (`_noopytv._tcp`, 8765) et
+# un listener dédié à Home Assistant (`_noopytvha._tcp`, 8766). Même appareil, même API.
+# On retient le service qui a créé l'entrée pour ne mettre à jour son port que depuis CE
+# service : sinon chaque annonce de l'autre ferait basculer le port 8765 ⇄ 8766.
+CONF_ZEROCONF_TYPE = "zeroconf_type"
+ZEROCONF_TYPE_APP = "_noopytv._tcp.local."
+ZEROCONF_TYPE_HOME_ASSISTANT = "_noopytvha._tcp.local."
 # Les 6 sélecteurs par catégorie restent à `unknown` en permanence et encombrent l'UI.
 CONF_ENABLE_CATEGORY_SELECTS = "enable_category_selects"
 CONF_APPLE_TV_SOURCE = "apple_tv_source"

@@ -1,33 +1,33 @@
 refresh:
-  name: Rafraîchir
-  description: Force le rafraîchissement des données depuis OneTV.
+  name: Refresh
+  description: Force a data refresh from OneTV.
 
 play_channel:
-  name: Changer de chaîne
-  description: Change la chaîne en cours de lecture sur OneTV.
+  name: Change channel
+  description: Change the channel playing in OneTV.
   fields:
     channel_id:
-      name: ID de la chaîne
-      description: L'identifiant unique (UUID) ou le nom de la chaîne à lire.
+      name: Channel ID
+      description: Channel UUID, stream id or name. Names are matched ignoring case and accents.
       required: true
       example: "TF1"
       selector:
         text:
 
 play_movie:
-  name: Lancer un film
-  description: Lance un film du catalogue OneTV.
+  name: Play a movie
+  description: Play a movie from the OneTV catalog.
   fields:
     movie_id:
-      name: ID du film
-      description: Identifiant du film (visible dans le navigateur de médias de l'entité OneTV).
+      name: Movie ID
+      description: Movie identifier (shown in the media browser of the OneTV entity).
       required: true
       example: "12345"
       selector:
         text:
     resume_position:
-      name: Reprendre à
-      description: Position de reprise en secondes. Omettre pour démarrer au début.
+      name: Resume at
+      description: Resume position in seconds. Leave empty to start from the beginning.
       required: false
       example: 1830
       selector:
@@ -38,18 +38,18 @@ play_movie:
           mode: box
 
 play_episode:
-  name: Lancer un épisode
-  description: Lance un épisode de série du catalogue OneTV.
+  name: Play an episode
+  description: Play a TV show episode from the OneTV catalog.
   fields:
     series_id:
-      name: ID de la série
-      description: Identifiant de la série (visible dans le navigateur de médias de l'entité OneTV).
+      name: Series ID
+      description: Series identifier (shown in the media browser of the OneTV entity).
       required: true
       example: "6789"
       selector:
         text:
     season:
-      name: Saison
+      name: Season
       required: true
       example: 1
       selector:
@@ -58,7 +58,7 @@ play_episode:
           max: 100
           mode: box
     episode:
-      name: Épisode
+      name: Episode
       required: true
       example: 1
       selector:
@@ -67,8 +67,8 @@ play_episode:
           max: 1000
           mode: box
     resume_position:
-      name: Reprendre à
-      description: Position de reprise en secondes. Omettre pour démarrer au début.
+      name: Resume at
+      description: Resume position in seconds. Leave empty to start from the beginning.
       required: false
       selector:
         number:
@@ -78,13 +78,13 @@ play_episode:
           mode: box
 
 send_command:
-  name: Envoyer une commande
+  name: Send a command
   description: >-
-    Envoie une commande brute au lecteur OneTV. Les commandes de volume agissent sur le gain
-    du lecteur, pas sur le volume du téléviseur (hors de portée d'une application tvOS).
+    Send a raw command to the OneTV player. Volume commands change the player's own level,
+    not the TV volume (out of reach for a tvOS app).
   fields:
     command:
-      name: Commande
+      name: Command
       required: true
       example: seekToLive
       selector:
@@ -105,12 +105,11 @@ send_command:
             - adjustVolume
             - toggleMute
     params:
-      name: Paramètres
+      name: Parameters
       description: >-
-        Paramètres de la commande. seekRelative attend "seconds", seekAbsolute attend
-        "position", setAudioTrack et setSubtitleTrack attendent "trackIndex", setVolume
-        attend "level" (0 à 1), adjustVolume attend "delta" (signé). toggleMute n'en prend
-        aucun.
+        Command parameters. seekRelative takes "seconds", seekAbsolute takes "position",
+        setAudioTrack and setSubtitleTrack take "trackIndex", setVolume takes "level"
+        (0 to 1), adjustVolume takes "delta" (signed). toggleMute takes none.
       required: false
       example: '{"seconds": -30}'
       selector:

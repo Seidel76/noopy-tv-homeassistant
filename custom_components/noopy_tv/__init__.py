@@ -19,6 +19,7 @@ from homeassistant.loader import async_get_integration
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import NoopyTVAPI, NoopyTVAPIError, NoopyTVConnectionError
+from .naming import resolve_channel_id
 from .thumbnails import NoopyTVThumbnailView
 from .const import (
     CONF_API_KEY,
@@ -156,8 +157,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.error("channel_id requis pour play_channel")
             return
 
-        _LOGGER.info("Service play_channel appelé pour: %s", channel_id)
-        success = await api.play_channel(channel_id)
+        # L'app ne compare que le nom EXACT : on résout d'abord ici, insensible à la casse et
+        # aux accents (« france 2 » → « FRANCE 2 »). Sans correspondance, on transmet tel quel
+        # (stream_id, tvg_id… que l'app sait encore résoudre).
+        channels = (coordinator.data or {}).get("channels")
+        resolved = resolve_channel_id(channels, str(channel_id)) or channel_id
+        _LOGGER.info("Service play_channel appelé pour: %s (→ %s)", channel_id, resolved)
+        success = await api.play_channel(resolved)
 
         if success:
             _LOGGER.info("Chaîne changée avec succès")
@@ -169,11 +175,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         try:
             result = await api.send_command(command, params)
         except NoopyTVAPIError as err:
-            raise HomeAssistantError(f"OneTV: commande '{command}' échouée — {err}") from err
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="command_failed",
+                translation_placeholders={"command": command, "error": str(err)},
+            ) from err
         if not result.get("success", False):
             raise HomeAssistantError(
-                f"OneTV a refusé la commande '{command}': "
-                f"{result.get('error') or result.get('message')}"
+                translation_domain=DOMAIN,
+                translation_key="command_refused",
+                translation_placeholders={
+                    "command": command,
+                    "error": str(result.get("error") or result.get("message")),
+                },
             )
         await coordinator.async_request_refresh()
 

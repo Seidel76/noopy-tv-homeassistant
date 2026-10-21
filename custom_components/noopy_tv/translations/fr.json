@@ -39,9 +39,39 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "app_available": {
+        "name": "Application accessible"
+      }
+    },
+    "button": {
+      "go_live": {
+        "name": "Retour au direct"
+      },
+      "refresh": {
+        "name": "Actualiser les données"
+      }
+    },
+    "sensor": {
+      "statistics": {
+        "name": "Statistiques"
+      },
+      "now_playing": {
+        "name": "Lecture en cours"
+      },
+      "progress": {
+        "name": "Progression"
+      }
+    },
     "select": {
       "channel_selector": {
-        "name": "Chaîne TV"
+        "name": "Toutes les chaînes"
+      },
+      "audio_track": {
+        "name": "Piste audio"
+      },
+      "subtitle_track": {
+        "name": "Sous-titres"
       }
     }
   },
@@ -56,7 +86,7 @@
       "fields": {
         "channel_id": {
           "name": "ID de la chaîne",
-          "description": "L'identifiant ou le nom de la chaîne à lire."
+          "description": "UUID, stream id ou nom de la chaîne. Le nom est comparé sans tenir compte de la casse ni des accents."
         }
       }
     },
@@ -115,6 +145,50 @@
     "no_apple_tv_paired": {
       "title": "OneTV : aucune Apple TV associée",
       "description": "Associez votre Apple TV dans les options de l'intégration OneTV. Sans elle, Home Assistant ne peut pas lancer l'application quand elle est fermée : `media_player.turn_on` échoue, et toute automatisation qui compte dessus reste sans effet."
+    }
+  },
+  "exceptions": {
+    "command_failed": {
+      "message": "OneTV : la commande « {command} » a échoué : {error}"
+    },
+    "command_refused": {
+      "message": "OneTV a refusé la commande « {command} » : {error}"
+    },
+    "track_not_found": {
+      "message": "Piste introuvable : {option}"
+    },
+    "track_failed": {
+      "message": "OneTV : changement de piste impossible : {error}"
+    },
+    "track_refused": {
+      "message": "OneTV a refusé le changement de piste : {error}"
+    },
+    "no_apple_tv": {
+      "message": "Aucune Apple TV associée. Configurez-la dans les options de l'intégration OneTV pour que Home Assistant puisse lancer l'app."
+    },
+    "entity_not_found": {
+      "message": "L'entité {entity_id} n'existe pas."
+    },
+    "apple_tv_not_waking": {
+      "message": "{entity_id} refuse toujours le changement de source après {attempts} tentatives, l'Apple TV ne se réveille pas. Allumez le téléviseur puis réessayez."
+    },
+    "channel_not_found": {
+      "message": "OneTV n'a pas trouvé la chaîne « {channel} »."
+    },
+    "unsupported_media_type": {
+      "message": "Type de média non supporté par OneTV : {media_type}"
+    },
+    "unknown_browse_path": {
+      "message": "Chemin de navigation inconnu : {path}"
+    },
+    "category_not_found": {
+      "message": "Catégorie introuvable : {category}"
+    },
+    "go_live_failed": {
+      "message": "OneTV : retour au direct impossible : {error}"
+    },
+    "go_live_refused": {
+      "message": "OneTV a refusé le retour au direct : {error}"
     }
   }
 }

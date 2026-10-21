@@ -54,7 +54,7 @@ class NoopyTVGoLiveButton(_NoopyTVButtonBase):
     """Ramène la lecture au bord du direct (annule pause et différé)."""
 
     _attr_has_entity_name = True
-    _attr_name = "Retour au direct"
+    _attr_translation_key = "go_live"
     _attr_icon = "mdi:broadcast"
 
     def __init__(self, coordinator, api: NoopyTVAPI, entry: ConfigEntry) -> None:
@@ -112,10 +112,18 @@ class NoopyTVGoLiveButton(_NoopyTVButtonBase):
         try:
             result = await self._api.send_command("seekToLive")
         except NoopyTVAPIError as err:
-            raise HomeAssistantError(f"OneTV : retour au direct impossible — {err}") from err
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="go_live_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
         if not result.get("success", False):
             raise HomeAssistantError(
-                f"OneTV a refusé le retour au direct : {result.get('error') or result.get('message')}"
+                translation_domain=DOMAIN,
+                translation_key="go_live_refused",
+                translation_placeholders={
+                    "error": str(result.get("error") or result.get("message"))
+                },
             )
         await self.coordinator.async_request_refresh()
 
@@ -129,7 +137,7 @@ class NoopyTVRefreshButton(_NoopyTVButtonBase):
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Actualiser les données"
+    _attr_translation_key = "refresh"
     _attr_icon = "mdi:refresh"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 

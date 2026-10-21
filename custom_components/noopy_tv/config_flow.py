@@ -22,6 +22,7 @@ from .const import (
     CONF_DEVICE_MODEL,
     CONF_ENABLE_CATEGORY_SELECTS,
     CONF_SUPPORTS_SSE,
+    CONF_ZEROCONF_TYPE,
     CONF_HOST,
     CONF_PORT,
     CONF_SCAN_INTERVAL,
@@ -29,6 +30,7 @@ from .const import (
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL_SECONDS,
     DOMAIN,
+    ZEROCONF_TYPE_APP,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -93,6 +95,7 @@ class NoopyTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._discovered_model: str | None = None
         self._discovered_manufacturer: str | None = None
         self._discovered_supports_sse: bool = True
+        self._discovered_type: str = ZEROCONF_TYPE_APP
     
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         errors: dict[str, str] = {}
@@ -129,7 +132,8 @@ class NoopyTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         self._discovered_host = str(discovery_info.host)
         self._discovered_port = discovery_info.port or DEFAULT_PORT
-        self._discovered_name = discovery_info.name.replace("._noopytv._tcp.local.", "")
+        self._discovered_type = discovery_info.type or ZEROCONF_TYPE_APP
+        self._discovered_name = discovery_info.name.replace(f".{self._discovered_type}", "")
 
         # Extract the api_key from the Bonjour TXT record (key "apiKey").
         # Allows zero-config auto-pairing without copy-paste from tvOS.
@@ -158,14 +162,14 @@ class NoopyTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         unique_id = self._unique_id_for_discovery()
         await self.async_set_unique_id(unique_id)
         # `updates=` : si l'appareil est déjà connu, on met à jour son adresse au lieu
-        # d'abandonner — c'est ce qui répare une IP qui a changé.
-        self._abort_if_unique_id_configured(
-            updates={
-                CONF_HOST: self._discovered_host,
-                CONF_PORT: self._discovered_port,
-                **({CONF_API_KEY: self._discovered_api_key} if self._discovered_api_key else {}),
-            }
-        )
+        # d'abandonner — c'est ce qui répare une IP qui a changé. Le port ne suit que le
+        # service qui a créé l'entrée (cf. CONF_ZEROCONF_TYPE) : l'app annonce 8765 ET 8766.
+        updates: dict[str, Any] = {CONF_HOST: self._discovered_host}
+        if self._discovered_api_key:
+            updates[CONF_API_KEY] = self._discovered_api_key
+        if self._port_follows_discovery(unique_id):
+            updates[CONF_PORT] = self._discovered_port
+        self._abort_if_unique_id_configured(updates=updates)
 
         # ⚠️ v4.2.1 — MIGRATION. La v4.1.0 est passée de `noopytv_<host>_<port>` à
         # `noopytv_<deviceId>` : une entrée créée avant, ou ajoutée à la main (l'étape
@@ -177,9 +181,9 @@ class NoopyTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason="already_configured")
 
         # Garde-fou : jamais deux entrées pour le même hôte, quel que soit l'identifiant.
-        self._async_abort_entries_match(
-            {CONF_HOST: self._discovered_host, CONF_PORT: self._discovered_port}
-        )
+        # v4.9.4 — l'hôte seul : l'app écoute sur 8765 ET 8766, un appareil ajouté via l'un
+        # des deux ports ne doit pas réapparaître découvert via l'autre.
+        self._async_abort_entries_match({CONF_HOST: self._discovered_host})
 
         try:
             session = async_get_clientsession(self.hass)
@@ -209,15 +213,19 @@ class NoopyTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _async_adopt_legacy_entry(self, unique_id: str) -> bool:
         """Rattache une entrée existante au nouvel identifiant. True si adoptée.
 
-        On reconnaît l'entrée à son hôte et son port : c'est le seul lien commun entre les
-        deux schémas d'identifiant.
+        On reconnaît l'entrée à son hôte : c'est le seul lien commun entre les deux schémas
+        d'identifiant. Le port n'entre plus en compte (v4.9.4) : l'app annonce deux services
+        (8765 et 8766) et l'entrée a pu être créée par l'un ou l'autre. Son port est conservé.
         """
         for entry in self._async_current_entries():
             if entry.unique_id == unique_id:
                 return False  # déjà au bon format, `_abort_if_unique_id_configured` a géré
             if entry.data.get(CONF_HOST) != self._discovered_host:
                 continue
-            if entry.data.get(CONF_PORT, DEFAULT_PORT) != self._discovered_port:
+            # Une entrée qui connaît déjà un AUTRE appareil n'est pas un ancien format : c'est
+            # une adresse IP réattribuée par le routeur. On ne la détourne pas.
+            known_device = entry.data.get(CONF_DEVICE_ID)
+            if known_device and self._discovered_device_id and known_device != self._discovered_device_id:
                 continue
 
             data = {**entry.data, CONF_SUPPORTS_SSE: self._discovered_supports_sse}
@@ -240,6 +248,18 @@ class NoopyTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return True
         return False
 
+    def _port_follows_discovery(self, unique_id: str) -> bool:
+        """True si l'entrée existante a été créée par le service qui s'annonce maintenant.
+
+        Entrées antérieures à v4.9.4 (pas de type mémorisé) : le service de la télécommande,
+        le seul découvert jusque-là.
+        """
+        for entry in self._async_current_entries():
+            if entry.unique_id == unique_id:
+                created_by = entry.data.get(CONF_ZEROCONF_TYPE, ZEROCONF_TYPE_APP)
+                return created_by == self._discovered_type
+        return True
+
     def _unique_id_for_discovery(self) -> str:
         """`deviceId` si l'app l'annonce, sinon repli host+port (comportement ≤ v4.0.x)."""
         if self._discovered_device_id:
@@ -252,6 +272,7 @@ class NoopyTVConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_HOST: self._discovered_host,
                 CONF_PORT: self._discovered_port,
                 CONF_SUPPORTS_SSE: self._discovered_supports_sse,
+                CONF_ZEROCONF_TYPE: self._discovered_type,
             }
             if self._discovered_api_key:
                 data[CONF_API_KEY] = self._discovered_api_key
