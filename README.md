@@ -85,13 +85,24 @@ after the app has been suspended.
 
 ## Installation
 
-### HACS
+### HACS (recommended)
+
+OneTV is in the default HACS catalog.
+
+[![Open your Home Assistant instance and open this repository inside HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Seidel76&repository=noopy-tv-homeassistant&category=integration)
+
+1. Open **HACS**, search for **OneTV** and install it (or use the button above)
+2. Restart Home Assistant
+3. The Apple TV is usually discovered on its own; otherwise **Settings → Devices & Services
+   → Add Integration** → **OneTV**
+
+### HACS custom repository (fallback)
+
+If OneTV does not show up in the HACS search (older HACS, or the catalog not refreshed yet):
 
 1. HACS → ⋮ → **Custom repositories**
 2. Add `https://github.com/Seidel76/noopy-tv-homeassistant` as **Integration**
 3. Search for **OneTV**, install, restart Home Assistant
-4. The Apple TV is usually discovered on its own; otherwise **Settings → Devices & Services
-   → Add Integration**
 
 ### Manual
 
