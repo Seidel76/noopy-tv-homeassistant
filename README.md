@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="custom_components/noopy_tv/logo@2x.png" alt="OneTV" width="128" height="128">
+  <img src="https://raw.githubusercontent.com/Seidel76/noopy-tv-homeassistant/main/custom_components/noopy_tv/logo@2x.png" alt="OneTV" width="128" height="128">
 </p>
 
 <h1 align="center">OneTV for Home Assistant</h1>
 
 <p align="center">
-  <a href="https://github.com/hacs/integration"><img src="https://img.shields.io/badge/HACS-Custom-41BDF5.svg" alt="HACS Custom"></a>
+  <a href="https://github.com/hacs/integration"><img src="https://img.shields.io/badge/HACS-Default-41BDF5.svg" alt="HACS Default"></a>
   <img src="https://img.shields.io/github/v/release/Seidel76/noopy-tv-homeassistant" alt="Release">
   <img src="https://img.shields.io/github/license/Seidel76/noopy-tv-homeassistant" alt="License">
 </p>
@@ -225,4 +225,4 @@ Every version and what changed: [Releases](https://github.com/Seidel76/noopy-tv-
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/Seidel76/noopy-tv-homeassistant/blob/main/LICENSE).
